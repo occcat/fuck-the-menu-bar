@@ -8,7 +8,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "MenuBarShelfApp", targets: ["AppShell"]),
+        .executable(name: "fuck-the-menu-bar", targets: ["AppShell"]),
         .executable(name: "FixtureMenuExtras", targets: ["FixtureMenuExtras"]),
     ],
     targets: [

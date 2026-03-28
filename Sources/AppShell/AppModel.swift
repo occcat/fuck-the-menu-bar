@@ -131,6 +131,10 @@ final class AppModel: ObservableObject {
         discovery.rescan()
     }
 
+    func setAutomaticScanningPaused(_ paused: Bool) {
+        discovery.setAutomaticScanningPaused(paused)
+    }
+
     func toggleReveal() {
         revealState = revealState == .collapsed ? .expanded : .collapsed
         updateOverlay()

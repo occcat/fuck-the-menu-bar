@@ -21,12 +21,19 @@ public final class LocalizationController: ObservableObject {
     }
 
     private var activeBundle: Bundle {
-        guard language != .system,
-              let path = Bundle.module.path(forResource: language.rawValue, ofType: "lproj"),
-              let bundle = Bundle(path: path) else {
+        guard language != .system else {
             return Bundle.module
         }
-        return bundle
+
+        let candidates = [language.rawValue, language.rawValue.lowercased()]
+        for candidate in candidates {
+            if let path = Bundle.module.path(forResource: candidate, ofType: "lproj"),
+               let bundle = Bundle(path: path) {
+                return bundle
+            }
+        }
+
+        return Bundle.module
     }
 }
 

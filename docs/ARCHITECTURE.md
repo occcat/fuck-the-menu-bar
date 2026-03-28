@@ -16,7 +16,8 @@
           ┌─────────────────────────────────────────┐
           │              Discovery                  │
           │  SystemMenuBarDiscoveryService           │
-          │  (scan every 2 s, merge dual-channel)    │
+          │  (scan every 5 s, pause on active,       │
+          │   merge dual-channel)                     │
           └─────────────────┬───────────────────────┘
                             │ [MenuBarItemDescriptor]
                             ▼
@@ -108,7 +109,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant Timer as Timer (2 s)
+    participant Timer as Timer (5 s)
     participant Disc as Discovery
     participant AX as Accessibility API
     participant WS as CGWindowList
@@ -188,13 +189,13 @@ Foundation types shared by every module. Zero dependencies.
 | `ProxyInteractionMode` | How clicks are routed: `proxyPreferred`, `revealBeforeAction`, `realClickOnly` |
 | `AppSettings` | Top-level config container with schema version, rules, appearance, hotkey, language |
 | `MenuBarIdentityBuilder` | Deterministic stable-ID generator from `ItemIdentitySeed` |
-| `AXElementCache` | `@MainActor` singleton cache mapping item IDs to live `AXUIElement` refs for fast re-press |
+| `AXElementCache` | `nonisolated(unsafe)` singleton cache mapping item IDs to live `AXUIElement` refs for fast re-press; thread-safe via `NSLock` |
 | `ManagedMenuBarItem` | Composite: descriptor + rule + optional snapshot. Primary UI data source |
 | `MenuBarLayoutInput` / `MenuBarLayoutResult` | Layout engine I/O |
 
 ### Discovery
 
-Dual-channel menu bar scanner running on a 2-second `Timer`.
+Dual-channel menu bar scanner running on a 5-second `Timer`. Automatic scanning pauses while the application is active (foreground) and resumes when it resigns active, reducing unnecessary rescans during user interaction.
 
 - **AX channel**: Iterates all running applications via `NSWorkspace.shared.runningApplications`, creates `AXUIElementCreateApplication`, reads `AXExtrasMenuBar` and `AXMenuBar`, recursively walks children (depth 2), filters by `isLikelyMenuBarItem(bounds:)` (top-of-screen heuristic +-4 to 40 pt).
 - **Window Server channel**: `CGWindowListCopyWindowInfo` with on-screen-only filter, width 10..180 pt guard.
@@ -295,13 +296,13 @@ Standalone executable (`swift run FixtureMenuExtras`) that injects 4-5 fake `NSS
 | Context | Guarantee |
 |---------|-----------|
 | `AppModel`, all service types | `@MainActor` |
-| `AXElementCache` | `@MainActor` singleton |
+| `AXElementCache` | `nonisolated(unsafe) static let shared` — thread-safe via `NSLock` |
 | `LocalizationController` | `nonisolated(unsafe) static let shared` — reads on main, apply on main |
-| Discovery timer | `Timer.scheduledTimer` on main run loop, rescans dispatch back to `@MainActor` |
+| Discovery timer | `Timer.scheduledTimer` on main run loop (5 s interval), rescans dispatch back to `@MainActor`; paused while app is active |
 | Hotkey handler | Carbon event handler calls closure on main thread |
 | Model types (`AppSettings`, `MenuBarItemDescriptor`, etc.) | `Sendable` value types |
 
-The entire app runs on the main actor. No background queues, no concurrent data access. This is deliberate: Accessibility APIs (`AXUIElement*`) and AppKit UI must run on the main thread, and the workload (scanning ~50 items every 2 seconds) is trivially fast.
+The entire app runs on the main actor. No background queues, no concurrent data access (except `AXElementCache` which uses `NSLock` for thread safety after being decoupled from `@MainActor`). This is deliberate: Accessibility APIs (`AXUIElement*`) and AppKit UI must run on the main thread, and the workload (scanning ~50 items every 5 seconds) is trivially fast.
 
 ---
 
@@ -336,7 +337,7 @@ settings.json (schemaVersion: 1)
 
 | Target | Type | Description |
 |--------|------|-------------|
-| `MenuBarShelfApp` | Executable | Main application (`AppShell`) |
+| `fuck-the-menu-bar` | Executable | Main application (`AppShell`) |
 | `FixtureMenuExtras` | Executable | Dev-only fake menu bar icons |
 | `Core` | Library | Shared models and protocols |
 | `Localization` | Library | L10n engine + bundled `.strings` |

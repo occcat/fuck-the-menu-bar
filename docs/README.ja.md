@@ -61,7 +61,7 @@ cd fuck-the-menu-bar
 swift build
 
 # 実行
-swift run MenuBarShelfApp
+swift run fuck-the-menu-bar
 ```
 
 ### テスト
@@ -147,7 +147,7 @@ Tests/
 
 ## 仕組み
 
-1. **検出** — `SystemMenuBarDiscoveryService` が 2 秒ごとにスキャンし、AX API で全実行中アプリの `AXExtrasMenuBar` / `AXMenuBar` を走査。`CGWindowListCopyWindowInfo` で Window Server のみで見える項目を補完
+1. **検出** — `SystemMenuBarDiscoveryService` が 5 秒ごとにスキャンし、AX API で全実行中アプリの `AXExtrasMenuBar` / `AXMenuBar` を走査。`CGWindowListCopyWindowInfo` で Window Server のみで見える項目を補完。アプリがフォアグラウンドの間は自動スキャンを一時停止し、バックグラウンドに移行すると再開
 2. **アイデンティティ** — `MenuBarIdentityBuilder` が各アイコンに安定 ID を生成：AX Identifier 優先、タイトルにフォールバック、最終的にジオメトリシグネチャを使用
 3. **レイアウト** — `DefaultMenuBarLayoutEngine` が表示ルールに基づき項目を 3 グループに分割：常に表示、マスク対象、棚表示
 4. **レンダリング** — `MenuBarOverlayController` がボーダーレスの `NSPanel` をメニューバーの上に浮かせ、隠しアイコンにフロストマスクを重ね、展開時に棚ストリップを描画

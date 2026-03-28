@@ -57,6 +57,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.setAutomaticScanningPaused(true)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        model.setAutomaticScanningPaused(false)
+    }
+
     func openSettings(tab: SettingsTab = .items) {
         model.openSettings(tab: tab)
         settingsController.show(model: model)

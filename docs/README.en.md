@@ -61,7 +61,7 @@ cd fuck-the-menu-bar
 swift build
 
 # Run
-swift run MenuBarShelfApp
+swift run fuck-the-menu-bar
 ```
 
 ### Test
@@ -147,7 +147,7 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
 
 ## How It Works
 
-1. **Discovery** — `SystemMenuBarDiscoveryService` rescans every 2 s, walking `AXExtrasMenuBar` / `AXMenuBar` of every running app via AX API, and supplementing with `CGWindowListCopyWindowInfo` for Window-Server-only items
+1. **Discovery** — `SystemMenuBarDiscoveryService` rescans every 5 s, walking `AXExtrasMenuBar` / `AXMenuBar` of every running app via AX API, and supplementing with `CGWindowListCopyWindowInfo` for Window-Server-only items. Automatic scanning pauses while the app is in the foreground and resumes when it moves to the background
 2. **Identity** — `MenuBarIdentityBuilder` produces a stable ID for each icon: prefers AX Identifier, falls back to title, ultimately uses a geometry signature
 3. **Layout** — `DefaultMenuBarLayoutEngine` partitions items into three buckets: always-visible, masked, and shelf
 4. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying frosted masks on hidden icons and rendering the shelf strip when expanded

@@ -61,7 +61,7 @@ cd fuck-the-menu-bar
 swift build
 
 # 執行
-swift run MenuBarShelfApp
+swift run fuck-the-menu-bar
 ```
 
 ### 測試
@@ -147,7 +147,7 @@ Tests/
 
 ## 運作原理
 
-1. **發現** — `SystemMenuBarDiscoveryService` 每 2 秒掃描一次，透過 AX API 遍歷所有執行中 App 的 `AXExtrasMenuBar` / `AXMenuBar`，同時透過 `CGWindowListCopyWindowInfo` 補充僅 Window Server 可見的項目
+1. **發現** — `SystemMenuBarDiscoveryService` 每 5 秒掃描一次，透過 AX API 遍歷所有執行中 App 的 `AXExtrasMenuBar` / `AXMenuBar`，同時透過 `CGWindowListCopyWindowInfo` 補充僅 Window Server 可見的項目。App 處於前台時自動暫停掃描，切到背景後恢復
 2. **身份** — `MenuBarIdentityBuilder` 為每個圖示產生穩定 ID：優先使用 AX Identifier，退回標題，最終使用幾何簽章
 3. **佈局** — `DefaultMenuBarLayoutEngine` 根據可見性規則將項目分為三組：始終可見、遮罩覆蓋、收納列展示
 4. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加磨砂遮罩，展開時渲染收納條

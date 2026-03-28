@@ -10,12 +10,28 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
     public var onItemsDidChange: (([MenuBarItemDescriptor]) -> Void)?
 
     private var timer: Timer?
+    private var automaticScanningPaused = false
 
     public init() {}
 
     public func start() {
         rescan()
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        scheduleTimerIfNeeded()
+    }
+
+    public func setAutomaticScanningPaused(_ paused: Bool) {
+        automaticScanningPaused = paused
+        if paused {
+            timer?.invalidate()
+            timer = nil
+        } else {
+            scheduleTimerIfNeeded()
+        }
+    }
+
+    private func scheduleTimerIfNeeded() {
+        guard timer == nil, !automaticScanningPaused else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.rescan()
             }
@@ -28,15 +44,15 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
     }
 
     public func rescan() {
-        let axItems = scanAccessibilityItems()
-        let windowItems = scanWindowServerCandidates()
-        let merged = merge(accessibilityItems: axItems, windowItems: windowItems)
+        let axItems = Self.scanAccessibilityItems()
+        let windowItems = Self.scanWindowServerCandidates()
+        let merged = Self.merge(accessibilityItems: axItems, windowItems: windowItems)
         guard merged != items else { return }
         items = merged
         onItemsDidChange?(merged)
     }
 
-    private func merge(
+    private static func merge(
         accessibilityItems: [MenuBarItemDescriptor],
         windowItems: [MenuBarItemDescriptor]
     ) -> [MenuBarItemDescriptor] {
@@ -59,7 +75,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         }
     }
 
-    private func mergedDescriptor(
+    private static func mergedDescriptor(
         preferred: MenuBarItemDescriptor,
         fallback: MenuBarItemDescriptor
     ) -> MenuBarItemDescriptor {
@@ -82,7 +98,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         )
     }
 
-    private func scanAccessibilityItems() -> [MenuBarItemDescriptor] {
+    private static func scanAccessibilityItems() -> [MenuBarItemDescriptor] {
         guard AXIsProcessTrusted() else {
             AXElementCache.shared.clear()
             return []
@@ -148,7 +164,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return descriptors
     }
 
-    private func scanWindowServerCandidates() -> [MenuBarItemDescriptor] {
+    private static func scanWindowServerCandidates() -> [MenuBarItemDescriptor] {
         guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -189,21 +205,21 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         }
     }
 
-    private func isLikelyMenuBarItem(bounds: CGRect) -> Bool {
+    private static func isLikelyMenuBarItem(bounds: CGRect) -> Bool {
         NSScreen.screens.contains { screen in
             let topInset = screen.frame.maxY - bounds.maxY
             return topInset >= -4 && topInset <= 40 && bounds.maxX <= screen.frame.maxX && bounds.minX >= screen.frame.minX
         }
     }
 
-    private func attribute(_ element: AXUIElement, name: String) -> AXUIElement? {
+    private static func attribute(_ element: AXUIElement, name: String) -> AXUIElement? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, name as CFString, &value)
         guard result == .success, let value else { return nil }
         return (value as! AXUIElement)
     }
 
-    private func stringAttribute(_ element: AXUIElement, name: String) -> String? {
+    private static func stringAttribute(_ element: AXUIElement, name: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -211,7 +227,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as? String
     }
 
-    private func recursiveChildren(of element: AXUIElement, depth: Int) -> [AXUIElement] {
+    private static func recursiveChildren(of element: AXUIElement, depth: Int) -> [AXUIElement] {
         guard depth >= 0 else { return [] }
         var children: [AXUIElement] = []
 
@@ -226,7 +242,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return children
     }
 
-    private func arrayAttribute(_ element: AXUIElement, name: String) -> [AXUIElement]? {
+    private static func arrayAttribute(_ element: AXUIElement, name: String) -> [AXUIElement]? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -234,7 +250,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as? [AXUIElement]
     }
 
-    private func frame(for element: AXUIElement) -> CGRect? {
+    private static func frame(for element: AXUIElement) -> CGRect? {
         guard
             let positionValue = valueAttribute(element, name: kAXPositionAttribute as String),
             let sizeValue = valueAttribute(element, name: kAXSizeAttribute as String)
@@ -256,7 +272,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return CGRect(origin: position, size: size)
     }
 
-    private func valueAttribute(_ element: AXUIElement, name: String) -> AXValue? {
+    private static func valueAttribute(_ element: AXUIElement, name: String) -> AXValue? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -264,7 +280,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as! AXValue?
     }
 
-    private func actionNames(for element: AXUIElement) -> [String] {
+    private static func actionNames(for element: AXUIElement) -> [String] {
         var actions: CFArray?
         guard AXUIElementCopyActionNames(element, &actions) == .success else { return [] }
         return actions as? [String] ?? []

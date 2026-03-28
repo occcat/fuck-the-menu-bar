@@ -89,10 +89,14 @@ private struct SettingsSidebar: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("app.name"))
                         .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.68)
+                        .allowsTightening(true)
                     Text(L10n.string("sidebar.tagline"))
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             VStack(spacing: 8) {
@@ -112,9 +116,11 @@ private struct SettingsSidebar: View {
                             }
                             Spacer()
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .background(selectionBackground(for: tab))
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     .buttonStyle(.plain)
                 }
@@ -511,7 +517,7 @@ private struct GeneralSettingsView: View {
                             set: { model.updatePreferredLanguage($0) }
                         )) {
                             ForEach(AppLanguage.allCases) { language in
-                                Text(language.localizedTitle).tag(language)
+                                Text(language.pickerTitle).tag(language)
                             }
                         }
                         .labelsHidden()
@@ -1029,6 +1035,16 @@ private extension AppLanguage {
         case .simplifiedChinese: L10n.string("language.zh-Hans")
         case .traditionalChinese: L10n.string("language.zh-Hant")
         case .japanese: L10n.string("language.ja")
+        }
+    }
+
+    var pickerTitle: String {
+        switch self {
+        case .system: "System"
+        case .english: "English"
+        case .simplifiedChinese: "简体中文"
+        case .traditionalChinese: "繁體中文"
+        case .japanese: "日本語"
         }
     }
 }
