@@ -65,10 +65,9 @@ final class AppModel: ObservableObject {
         }
 
         discovery.onItemsDidChange = { [weak self] items in
-            self?.discoveredItems = items.filter { item in
-                item.bundleID != Bundle.main.bundleIdentifier
-            }
-            self?.rebuildManagedItems()
+            guard let self else { return }
+            self.discoveredItems = items.filter { !self.isCurrentAppItem($0) }
+            self.rebuildManagedItems()
         }
     }
 
@@ -288,15 +287,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func activate(_ item: ManagedMenuBarItem) {
-        if item.rule.interactionMode != .proxyPreferred {
-            overlayController.temporarilyReveal(itemID: item.id)
-        }
-        interactionRouter.activate(item: item.descriptor, interactionMode: item.rule.interactionMode)
-        if item.rule.interactionMode != .proxyPreferred {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                self?.collapseReveal()
-            }
+    func activate(_ item: ManagedMenuBarItem, button: MenuBarClickButton = .left) {
+        collapseReveal()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            self?.interactionRouter.activate(
+                item: item.descriptor,
+                interactionMode: item.rule.interactionMode,
+                button: button
+            )
         }
     }
 
@@ -307,15 +305,139 @@ final class AppModel: ObservableObject {
             snapshotProvider.invalidateAll()
         }
 
-        managedItems = discoveredItems.map { item in
+        let rawManagedItems = discoveredItems.map { item in
             ManagedMenuBarItem(
                 descriptor: item,
                 rule: rule(for: item),
                 snapshot: snapshotProvider.snapshot(for: item)
             )
         }
+        managedItems = deduplicateManagedItems(rawManagedItems)
         syncHiddenOrder()
         updateOverlay()
+    }
+
+    private func deduplicateManagedItems(_ items: [ManagedMenuBarItem]) -> [ManagedMenuBarItem] {
+        var bestItemByKey: [String: ManagedMenuBarItem] = [:]
+
+        for item in items {
+            let appName = resolvedAppName(for: item.descriptor)
+            let dedupeKey = appName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let candidate = item.withDisplayName(appName)
+
+            guard let existing = bestItemByKey[dedupeKey] else {
+                bestItemByKey[dedupeKey] = candidate
+                continue
+            }
+
+            if preferredManagedItem(candidate, over: existing) {
+                bestItemByKey[dedupeKey] = candidate
+            }
+        }
+
+        return bestItemByKey.values.sorted {
+            if $0.descriptor.bounds.minX == $1.descriptor.bounds.minX {
+                return $0.displayName.localizedCompare($1.displayName) == .orderedAscending
+            }
+            return $0.descriptor.bounds.minX < $1.descriptor.bounds.minX
+        }
+    }
+
+    private func preferredManagedItem(_ candidate: ManagedMenuBarItem, over existing: ManagedMenuBarItem) -> Bool {
+        let candidateScore = dedupeScore(for: candidate)
+        let existingScore = dedupeScore(for: existing)
+        if candidateScore != existingScore {
+            return candidateScore > existingScore
+        }
+
+        if candidate.descriptor.bounds.minX != existing.descriptor.bounds.minX {
+            return candidate.descriptor.bounds.minX < existing.descriptor.bounds.minX
+        }
+
+        return candidate.displayName.localizedCompare(existing.displayName) == .orderedAscending
+    }
+
+    private func dedupeScore(for item: ManagedMenuBarItem) -> Int {
+        var score = 0
+
+        if settings.rules[item.id] != nil {
+            score += 100
+        }
+        if item.descriptor.capabilities.canPerformPress {
+            score += 20
+        }
+        if item.descriptor.source == .accessibility {
+            score += 10
+        }
+        if item.rule.kind == .hiddenInBar {
+            score += 4
+        } else if item.rule.kind == .alwaysHidden {
+            score += 2
+        }
+
+        return score
+    }
+
+    private func resolvedAppName(for item: MenuBarItemDescriptor) -> String {
+        if let runningApp = NSRunningApplication(processIdentifier: item.ownerPID),
+           let localizedName = runningApp.localizedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !localizedName.isEmpty {
+            return localizedName
+        }
+
+        if let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: item.bundleID),
+           let bundle = Bundle(url: applicationURL) {
+            let displayName =
+                (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String) ??
+                (bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String) ??
+                applicationURL.deletingPathExtension().lastPathComponent
+            let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        let fallback = item.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? item.bundleID : fallback
+    }
+
+    private func isCurrentAppItem(_ item: MenuBarItemDescriptor) -> Bool {
+        if item.ownerPID == ProcessInfo.processInfo.processIdentifier {
+            return true
+        }
+
+        let currentBundleIdentifier = normalizedAppIdentity(Bundle.main.bundleIdentifier)
+        let itemBundleIdentifier = normalizedAppIdentity(item.bundleID)
+        if let currentBundleIdentifier, itemBundleIdentifier == currentBundleIdentifier {
+            return true
+        }
+
+        let currentDisplayNames = Set([
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+            Bundle.main.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String,
+            ProcessInfo.processInfo.processName,
+            "去他妈的菜单栏",
+            "fuck-the-menu-bar",
+        ].compactMap(normalizedAppIdentity))
+
+        let candidateNames = Set([
+            item.displayName,
+            resolvedAppName(for: item),
+            item.bundleID,
+        ].compactMap(normalizedAppIdentity))
+
+        return !currentDisplayNames.isDisjoint(with: candidateNames)
+    }
+
+    private func normalizedAppIdentity(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .lowercased()
+            .replacingOccurrences(of: ".app", with: "")
+            .replacingOccurrences(of: "_", with: "-")
+            .replacingOccurrences(of: " ", with: "-")
     }
 
     private func syncHiddenOrder() {
@@ -343,9 +465,8 @@ final class AppModel: ObservableObject {
             layout: layout,
             appearance: settings.appearance,
             anchorFrame: statusAnchorFrame,
-            onActivate: { [weak self] item in self?.activate(item) },
-            onOpenSettings: { [weak self] in self?.openSettings(tab: .items) },
-            onMove: { [weak self] offsets, destination in self?.moveShelfItems(from: offsets, to: destination) }
+            onActivate: { [weak self] item, button in self?.activate(item, button: button) },
+            onRequestCollapse: { [weak self] in self?.collapseReveal() }
         )
     }
 

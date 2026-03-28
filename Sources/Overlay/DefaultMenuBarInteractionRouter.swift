@@ -7,13 +7,18 @@ import Foundation
 public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProtocol {
     public init() {}
 
-    public func activate(item: MenuBarItemDescriptor, interactionMode: ProxyInteractionMode) {
+    public func activate(item: MenuBarItemDescriptor, interactionMode: ProxyInteractionMode, button: MenuBarClickButton) {
+        if button == .right {
+            performRealClick(for: item, button: .right)
+            return
+        }
+
         switch interactionMode {
         case .proxyPreferred:
             if performAccessibilityPress(for: item) { return }
-            performRealClick(for: item)
+            performRealClick(for: item, button: .left)
         case .revealBeforeAction, .realClickOnly:
-            performRealClick(for: item)
+            performRealClick(for: item, button: .left)
         }
     }
 
@@ -30,11 +35,14 @@ public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProt
         return status == .success
     }
 
-    private func performRealClick(for item: MenuBarItemDescriptor) {
+    private func performRealClick(for item: MenuBarItemDescriptor, button: MenuBarClickButton) {
         let center = CGPoint(x: item.bounds.midX, y: item.bounds.midY)
+        let mouseTypeDown: CGEventType = button == .right ? .rightMouseDown : .leftMouseDown
+        let mouseTypeUp: CGEventType = button == .right ? .rightMouseUp : .leftMouseUp
+        let mouseButton: CGMouseButton = button == .right ? .right : .left
         guard
-            let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: center, mouseButton: .left),
-            let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: center, mouseButton: .left)
+            let mouseDown = CGEvent(mouseEventSource: nil, mouseType: mouseTypeDown, mouseCursorPosition: center, mouseButton: mouseButton),
+            let mouseUp = CGEvent(mouseEventSource: nil, mouseType: mouseTypeUp, mouseCursorPosition: center, mouseButton: mouseButton)
         else {
             return
         }

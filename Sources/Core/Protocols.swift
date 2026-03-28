@@ -11,7 +11,7 @@ public protocol MenuBarDiscoveryServiceProtocol: AnyObject {
 
 @MainActor
 public protocol MenuBarInteractionRouterProtocol: AnyObject {
-    func activate(item: MenuBarItemDescriptor, interactionMode: ProxyInteractionMode)
+    func activate(item: MenuBarItemDescriptor, interactionMode: ProxyInteractionMode, button: MenuBarClickButton)
 }
 
 public protocol MenuBarLayoutEngineProtocol {

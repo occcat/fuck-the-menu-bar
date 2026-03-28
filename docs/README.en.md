@@ -19,22 +19,26 @@ Your macOS menu bar is overflowing with icons. You're done with it.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ 🍎  File  Edit  …                 [☁ 🔒 📶]  ≡     │  ← Menu bar (icons under frosted mask)
-│                              ┌─────────────────────┐ │
-│                              │  ☁   🔒   📶   ⚙️  │ │  ← Shelf strip (expanded on demand)
-│                              └─────────────────────┘ │
+│ 🍎  File  Edit  …                 [░░ ░░ ░░]  ≡     │  ← Menu bar (icons under frosted mask)
+│                                    ┌──────────┐      │
+│                                    │ ☁ iCloud │      │
+│                                    │ 🔒 1Pwd  │      │  ← Bubble card (expanded on demand)
+│                                    │ 📶 Wi-Fi │      │
+│                                    └──────────┘      │
 └──────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
 - **Dual-channel discovery** — Combines Accessibility API (AXPress routing) with CGWindowList (Window Server) for maximum detection coverage
+- **Smart deduplication** — Multiple menu bar entries from the same app are automatically merged, keeping the entry with the strongest interaction capabilities
 - **Three visibility rules** — Per-icon: *Always Visible* / *Hidden in Shelf* / *Always Hidden*
 - **Three interaction modes** — Proxy-first (AXPress), reveal-before-action, real-click-only
-- **Live snapshots** — Captures pixel-accurate images of menu bar icons via Screen Recording, so the shelf shows the real thing
+- **Left + right click** — Shelf items support both left-click activation and right-click context menus
+- **App icons** — Automatically resolves app icons from `.app` bundles (CFBundleIconFile / CFBundleIconName), showing real app icons in the shelf
 - **Global hotkey** — Default `⌘⌥M`, fully customizable key and modifier combination
-- **Liquid glass UI** — Frosted masks + rounded capsule shelf strip + subtle animations, inspired by Apple's latest design language
-- **Shelf ordering** — Drag-and-drop reordering and manual up/down controls
+- **Liquid glass UI** — Frosted masks + vertical bubble card shelf + spring animations, inspired by Apple's latest design language
+- **Auto-collapse on outside click** — Click anywhere outside the bubble to automatically collapse the shelf
 - **Multilingual** — Simplified Chinese, Traditional Chinese, English, Japanese — switch in-app instantly
 - **Persistent config** — JSON stored at `~/.config/fuck-the-menu-bar/settings.json` with automatic v0 migration
 - **Launch at login** — Native macOS login item via SMAppService
@@ -83,7 +87,7 @@ swift run FixtureMenuExtras
 | Permission | Purpose | Required? |
 |------------|---------|-----------|
 | **Accessibility** | Enumerate menu bar items, trigger AXPress click routing | ✅ Yes |
-| **Screen Recording** | Capture pixel snapshots of menu bar icons for the shelf | ⬜ Recommended |
+| **Screen Recording** | Marks snapshot capability in discovery channel | ⬜ Optional |
 
 On first launch, an onboarding window guides you through granting each permission. If macOS doesn't immediately reflect a permission change, tap "Refresh Status" to re-check.
 
@@ -128,11 +132,8 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
   "appearance": {
-    "itemSpacing": 8,
-    "showLabels": false,
     "collapsedMaskOpacity": 0.92,
-    "animationDuration": 0.18,
-    "stripPadding": 10
+    "animationDuration": 0.18
   },
   "hotkey": {
     "keyCode": 46,
@@ -149,9 +150,10 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
 
 1. **Discovery** — `SystemMenuBarDiscoveryService` rescans every 5 s, walking `AXExtrasMenuBar` / `AXMenuBar` of every running app via AX API, and supplementing with `CGWindowListCopyWindowInfo` for Window-Server-only items. Automatic scanning pauses while the app is in the foreground and resumes when it moves to the background
 2. **Identity** — `MenuBarIdentityBuilder` produces a stable ID for each icon: prefers AX Identifier, falls back to title, ultimately uses a geometry signature
-3. **Layout** — `DefaultMenuBarLayoutEngine` partitions items into three buckets: always-visible, masked, and shelf
-4. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying frosted masks on hidden icons and rendering the shelf strip when expanded
-5. **Interaction** — `DefaultMenuBarInteractionRouter` fires AXPress for supported items and synthesizes CGEvent mouse events for the rest
+3. **Deduplication** — `AppModel` intelligently deduplicates discovered items by app name, keeping the entry with the strongest interaction capabilities (prioritizing items with user-defined rules, AXPress support, and Accessibility source)
+4. **Layout** — `DefaultMenuBarLayoutEngine` partitions items into three buckets: always-visible, masked, and shelf
+5. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying frosted masks on hidden icons and rendering a vertical bubble card when expanded; clicking outside the bubble auto-collapses it
+6. **Interaction** — `DefaultMenuBarInteractionRouter` fires AXPress for supported items and synthesizes CGEvent mouse events for the rest; the shelf supports both left-click activation and right-click context menus
 
 ## Contributing
 

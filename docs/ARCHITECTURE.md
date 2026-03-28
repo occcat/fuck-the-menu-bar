@@ -32,15 +32,16 @@
      │                  AppModel                        │
      │  (coordinator: settings, permissions, overlay)   │
      │  merges rules + descriptors → ManagedMenuBarItem │
+     │  deduplicates by app name, keeps best entry      │
      └────────┬─────────────┬──────────────┬────────────┘
               │             │              │
               ▼             ▼              ▼
    ┌──────────────┐ ┌─────────────┐ ┌─────────────────┐
    │ LayoutEngine │ │  Snapshot   │ │  Interaction     │
    │ (tri-split)  │ │  Provider   │ │  Router          │
-   │ visible /    │ │ (CGDisplay  │ │ (AXPress or      │
-   │ masked /     │ │  capture)   │ │  CGEvent click)  │
-   │ shelf        │ │             │ │                  │
+   │ visible /    │ │ (app icon   │ │ (AXPress or      │
+   │ masked /     │ │  from .app  │ │  CGEvent click   │
+   │ shelf        │ │  bundle)    │ │  L/R button)     │
    └──────┬───────┘ └──────┬──────┘ └────────┬─────────┘
           │                │                 │
           └────────────────┼─────────────────┘
@@ -48,7 +49,7 @@
           ┌─────────────────────────────────────────┐
           │              Overlay                    │
           │  MenuBarOverlayController               │
-          │  (NSPanel: frosted mask + shelf strip)  │
+          │  (NSPanel: frosted mask + bubble card)  │
           └─────────────────────────────────────────┘
 ```
 
@@ -136,16 +137,17 @@ sequenceDiagram
     Disc-->>Model: onItemsDidChange([MenuBarItemDescriptor])
 
     Model->>Model: apply VisibilityRule per item → [ManagedMenuBarItem]
+    Model->>Model: deduplicateManagedItems() — merge by app name
     Model->>LE: computeLayout(input)
     LE-->>Model: MenuBarLayoutResult {visible, masked, shelf}
 
     Model->>Snap: snapshot(for: item)
-    Snap->>Snap: CGDisplayCreateImage or placeholder
+    Snap->>Snap: resolveIcon from .app bundle (CFBundleIconFile)
     Snap-->>Model: ManagedItemSnapshot
 
     Model->>OC: update(layout, appearance, ...)
     OC->>Panel: setFrame + orderFrontRegardless
-    Panel-->>Panel: SwiftUI OverlayRootView renders mask + shelf strip
+    Panel-->>Panel: SwiftUI OverlayRootView renders mask + bubble card
 ```
 
 ---
@@ -155,24 +157,27 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     A["1. Discover<br/>AX + CGWindow"] --> B["2. Identify<br/>stableID()"]
-    B --> C["3. Layout<br/>tri-partition"]
-    C --> D["4. Render<br/>NSPanel overlay"]
-    D --> E["5. Interact<br/>AXPress / CGEvent"]
+    B --> C["3. Dedupe<br/>by app name"]
+    C --> D["4. Layout<br/>tri-partition"]
+    D --> E["5. Render<br/>NSPanel overlay"]
+    E --> F["6. Interact<br/>AXPress / CGEvent<br/>L+R click"]
 
     style A fill:#347d39,stroke:#57ab5a,color:#fff
     style B fill:#347d39,stroke:#57ab5a,color:#fff
     style C fill:#347d39,stroke:#57ab5a,color:#fff
     style D fill:#347d39,stroke:#57ab5a,color:#fff
     style E fill:#347d39,stroke:#57ab5a,color:#fff
+    style F fill:#347d39,stroke:#57ab5a,color:#fff
 ```
 
 | Stage | Module | Input | Output | Key Implementation |
 |-------|--------|-------|--------|-------------------|
-| **1. Discover** | `Discovery` | Running apps, screen geometry | `[MenuBarItemDescriptor]` | `scanAccessibilityItems()` enumerates `AXExtrasMenuBar` / `AXMenuBar` with recursive child traversal (depth 2); `scanWindowServerCandidates()` calls `CGWindowListCopyWindowInfo`; results merged with AX-preferred strategy |
+| **1. Discover** | `Discovery` | Running apps, screen geometry | `[MenuBarItemDescriptor]` | `scanAccessibilityItems()` enumerates `AXExtrasMenuBar` / `AXMenuBar` with recursive child traversal (depth 2); `scanWindowServerCandidates()` calls `CGWindowListCopyWindowInfo`; results merged with AX-preferred strategy. Empty AX titles are filtered via `nonEmptyStringAttribute()` |
 | **2. Identify** | `Core` | `ItemIdentitySeed` | Stable `String` ID | Priority: AX Identifier > title > geometry signature (`minX:width:height`). Enables persistent rules even when icon positions shift |
-| **3. Layout** | `LayoutEngine` | `[ManagedMenuBarItem]` + rules + hidden order | `MenuBarLayoutResult` | Items sorted by screen X. Three buckets: `alwaysVisible` (untouched), `hiddenInBar` + `alwaysHidden` (masked), `hiddenInBar` (shelf). Shelf respects user drag-order |
-| **4. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, spans full screen width x 96 pt. Masked items get `.ultraThinMaterial` rounded rectangles. Shelf strip is a `Capsule` with `HStack` of `ShelfItemView`s, each showing pixel snapshot or SF Symbol fallback |
-| **5. Interact** | `Overlay` | User tap on shelf item | Menu bar action triggered | `DefaultMenuBarInteractionRouter` routes by `ProxyInteractionMode`: `proxyPreferred` tries `AXUIElementPerformAction(kAXPressAction)` first (cached, then re-scanned), falls back to synthesized `CGEvent` mouse click |
+| **3. Dedupe** | `AppShell` | `[ManagedMenuBarItem]` | Deduplicated `[ManagedMenuBarItem]` | `deduplicateManagedItems()` groups items by normalized app name (case-insensitive, trimmed). Scoring: user-defined rule (+100), `canPerformPress` (+20), AX source (+10), visibility rule weight (+2/+4). Keeps highest-scoring entry per app |
+| **4. Layout** | `LayoutEngine` | `[ManagedMenuBarItem]` + rules + hidden order | `MenuBarLayoutResult` | Items sorted by screen X. Three buckets: `alwaysVisible` (untouched), `hiddenInBar` + `alwaysHidden` (masked), `hiddenInBar` (shelf). Shelf respects user drag-order |
+| **5. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, dynamic height based on shelf item count (44 pt collapsed, expands for bubble). Masked items get opaque frosted `RoundedRectangle` overlays. Shelf rendered as vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) with `ShelfItemRow` per item showing resolved app icon + name. Global/local click monitors auto-collapse on outside click |
+| **6. Interact** | `Overlay` | User click on shelf item | Menu bar action triggered | `DefaultMenuBarInteractionRouter` routes by `ProxyInteractionMode` and `MenuBarClickButton`: left-click uses `proxyPreferred` (tries `AXUIElementPerformAction(kAXPressAction)` first, falls back to synthesized `CGEvent`), right-click always synthesizes `CGEvent` right-mouse-down/up at item midpoint |
 
 ---
 
@@ -187,10 +192,12 @@ Foundation types shared by every module. Zero dependencies.
 | `MenuBarItemDescriptor` | Value type describing a single menu bar icon (bounds, bundle ID, capabilities, discovery source) |
 | `VisibilityRule` / `VisibilityRuleKind` | Per-item user preference: `alwaysVisible`, `hiddenInBar`, `alwaysHidden` |
 | `ProxyInteractionMode` | How clicks are routed: `proxyPreferred`, `revealBeforeAction`, `realClickOnly` |
+| `MenuBarClickButton` | Which mouse button was used: `.left` or `.right` |
 | `AppSettings` | Top-level config container with schema version, rules, appearance, hotkey, language |
 | `MenuBarIdentityBuilder` | Deterministic stable-ID generator from `ItemIdentitySeed` |
 | `AXElementCache` | `nonisolated(unsafe)` singleton cache mapping item IDs to live `AXUIElement` refs for fast re-press; thread-safe via `NSLock` |
-| `ManagedMenuBarItem` | Composite: descriptor + rule + optional snapshot. Primary UI data source |
+| `ManagedMenuBarItem` | Composite: descriptor + rule + optional snapshot. Primary UI data source. Supports `withDisplayName(_:)` for deduplication |
+| `ManagedItemSnapshot` | Snapshot with resolved app icon image and `iconFilePath` from `.app` bundle |
 | `MenuBarLayoutInput` / `MenuBarLayoutResult` | Layout engine I/O |
 
 ### Discovery
@@ -221,13 +228,14 @@ Pure function: `computeLayout(input:) -> MenuBarLayoutResult`.
 
 Three co-located types in the `Overlay` module:
 
-1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width, 96 pt tall, positioned at top. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders frosted mask rectangles over hidden items and an expandable shelf strip capsule. Supports `temporarilyReveal(itemID:)` for brief reveal animations.
+1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width with dynamic height: 44 pt when collapsed, expanding based on shelf item count when revealed. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders opaque frosted mask rectangles over hidden items and a vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) showing `ShelfItemRow`s with resolved app icons. Registers global and local click monitors to auto-collapse when clicking outside the bubble. Supports `temporarilyReveal(itemID:)` for brief reveal animations. Delayed frame shrink on collapse prevents animation clipping.
 
-2. **`MenuBarSnapshotProvider`** — Captures pixel snapshots of menu bar icons via `CGDisplayCreateImage`. Cache keyed by item ID with geometric + permission signature. Falls back to SF Symbol placeholder when Screen Recording is unavailable.
+2. **`MenuBarSnapshotProvider`** — Resolves app icons from `.app` bundles by reading `CFBundleIconFile` / `CFBundleIconName` / `CFBundleIcons` from `Info.plist`, then searching the bundle's `Resources` directory for `.icns`, `.png`, or `.pdf` files. Falls back to enumerating the Resources directory for any icon file. Cache keyed by item ID with bundle-ID + icon-file-path signature.
 
-3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Three strategies:
+3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Accepts a `MenuBarClickButton` parameter (`.left` / `.right`). Three strategies for left-click:
    - `proxyPreferred`: Try `AXUIElementPerformAction("AXPress")` from cache, re-scan on miss, fall back to real click
    - `revealBeforeAction` / `realClickOnly`: Synthesize `CGEvent` mouse down + mouse up at item midpoint
+   Right-click always synthesizes `CGEvent` right-mouse-down + right-mouse-up, bypassing AXPress.
 
 ### Persistence
 
@@ -280,6 +288,8 @@ Application entry point and coordination hub.
 - **`AppModel`** — `@MainActor ObservableObject`, the central coordinator:
   - Owns instances of all service types
   - Reacts to `onItemsDidChange` from Discovery
+  - Deduplicates discovered items by app name via `deduplicateManagedItems()` with scoring-based selection
+  - Filters out self-referencing items via `isCurrentAppItem()` (PID, bundle ID, and display name matching)
   - Drives layout computation and overlay updates
   - Persists settings on every mutation
   - Manages hotkey registration lifecycle
@@ -317,11 +327,8 @@ settings.json (schemaVersion: 1)
 │   └── interactionMode          ← proxyPreferred | revealBeforeAction | realClickOnly
 ├── hiddenOrder: [String]        ← ordered shelf item IDs
 ├── appearance: AppearanceSettings
-│   ├── itemSpacing: 8.0
-│   ├── showLabels: false
 │   ├── collapsedMaskOpacity: 0.92
-│   ├── animationDuration: 0.18
-│   └── stripPadding: 10.0
+│   └── animationDuration: 0.18
 ├── hotkey: HotkeyConfiguration
 │   ├── keyCode: 46 (M)
 │   ├── modifiers: 2304 (Cmd+Opt)

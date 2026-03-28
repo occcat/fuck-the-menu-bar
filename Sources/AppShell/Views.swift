@@ -210,8 +210,7 @@ private struct ItemsSettingsView: View {
                                         .foregroundStyle(.secondary)
                                         .frame(width: 26)
 
-                                    Image(systemName: "line.3.horizontal")
-                                        .foregroundStyle(.secondary)
+                                    MenuExtraPreview(item: item)
 
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(item.displayName)

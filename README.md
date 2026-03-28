@@ -19,22 +19,26 @@ macOS 菜单栏挤满图标，你受够了。
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ 🍎  File  Edit  …                 [☁ 🔒 📶]  ≡     │  ← 菜单栏（图标被磨砂遮罩覆盖）
-│                              ┌─────────────────────┐ │
-│                              │  ☁   🔒   📶   ⚙️  │ │  ← 收纳栏（展开时浮出）
-│                              └─────────────────────┘ │
+│ 🍎  File  Edit  …                 [░░ ░░ ░░]  ≡     │  ← 菜单栏（图标被磨砂遮罩覆盖）
+│                                    ┌──────────┐      │
+│                                    │ ☁ iCloud │      │
+│                                    │ 🔒 1Pwd  │      │  ← 气泡卡片（展开时浮出）
+│                                    │ 📶 Wi-Fi │      │
+│                                    └──────────┘      │
 └──────────────────────────────────────────────────────┘
 ```
 
 ## 特性
 
 - **双通道发现** — 同时使用 Accessibility API（AXPress 路由）和 CGWindowList（Window Server），最大化检测覆盖率
+- **智能去重** — 同一应用的多个菜单栏条目自动合并，保留交互能力最强的条目
 - **三种可见性规则** — 每个图标可设为 *始终显示* / *隐藏到收纳栏* / *始终隐藏*
 - **三种交互模式** — 优先代理点击（AXPress）、先显示再操作、仅真实点击
-- **实时快照** — 利用 Screen Recording 权限截取菜单栏图标像素，收纳栏里看到的就是真实图标
+- **左键 + 右键** — 收纳栏中的项目同时支持左键激活和右键上下文菜单
+- **应用图标** — 自动从 `.app` bundle 解析应用图标（CFBundleIconFile / CFBundleIconName），收纳栏显示真实应用图标
 - **全局快捷键** — 默认 `⌘⌥M`，可自定义按键和修饰键组合
-- **液态玻璃 UI** — 磨砂遮罩 + 圆角胶囊收纳条 + 微动效，致敬 Apple 最新设计语言
-- **收纳排序** — 支持拖拽排序和手动上下移动
+- **液态玻璃 UI** — 磨砂遮罩 + 纵向气泡卡片收纳栏 + 弹性动效，致敬 Apple 最新设计语言
+- **点击外部自动收起** — 展开收纳栏后，点击气泡外部任意区域自动折叠
 - **多语言** — 简体中文、繁體中文、English、日本語，应用内切换即时生效
 - **持久化配置** — JSON 格式存储在 `~/.config/fuck-the-menu-bar/settings.json`，支持 v0 格式自动迁移
 - **开机自启** — 基于 SMAppService，原生 macOS 登录项
@@ -83,7 +87,7 @@ swift run FixtureMenuExtras
 | 权限 | 用途 | 必须？ |
 |------|------|--------|
 | **Accessibility** | 枚举菜单栏项目、触发 AXPress 点击路由 | ✅ 是 |
-| **Screen Recording** | 截取菜单栏图标像素作为收纳栏快照 | ⬜ 推荐 |
+| **Screen Recording** | 用于发现通道中标记项目的截屏能力 | ⬜ 可选 |
 
 首次启动会弹出引导窗口，引导你逐一授权。若 macOS 没有即时反映权限变更，可点击「刷新状态」手动检测。
 
@@ -128,11 +132,8 @@ Tests/
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
   "appearance": {
-    "itemSpacing": 8,
-    "showLabels": false,
     "collapsedMaskOpacity": 0.92,
-    "animationDuration": 0.18,
-    "stripPadding": 10
+    "animationDuration": 0.18
   },
   "hotkey": {
     "keyCode": 46,
@@ -149,9 +150,10 @@ Tests/
 
 1. **发现** — `SystemMenuBarDiscoveryService` 每 5 秒扫描一次，通过 AX API 遍历所有运行中应用的 `AXExtrasMenuBar` / `AXMenuBar`，同时通过 `CGWindowListCopyWindowInfo` 补充仅 Window Server 可见的项目。应用处于前台时会冻结当前展示列表，切到后台后立即刷新；在设置页点击「重新扫描」时，应用会短暂隐藏自己以执行一次受控后台扫描
 2. **身份** — `MenuBarIdentityBuilder` 为每个图标生成稳定 ID：优先用 AX Identifier，退回标题，最终用几何签名
-3. **布局** — `DefaultMenuBarLayoutEngine` 根据可见性规则将项目分为三组：始终可见、遮罩覆盖、收纳栏展示
-4. **渲染** — `MenuBarOverlayController` 用一个 borderless `NSPanel` 浮在菜单栏之上，对被隐藏的图标叠加磨砂遮罩，展开时渲染收纳条
-5. **交互** — `DefaultMenuBarInteractionRouter` 对支持 AXPress 的项目直接通过 Accessibility 触发点击，不支持的则合成 CGEvent 鼠标事件
+3. **去重** — `AppModel` 按应用名称对发现结果进行智能去重，保留交互能力最强的条目（优先保留有用户自定义规则、支持 AXPress、来自 Accessibility 通道的项目）
+4. **布局** — `DefaultMenuBarLayoutEngine` 根据可见性规则将项目分为三组：始终可见、遮罩覆盖、收纳栏展示
+5. **渲染** — `MenuBarOverlayController` 用一个 borderless `NSPanel` 浮在菜单栏之上，对被隐藏的图标叠加磨砂遮罩，展开时渲染纵向气泡卡片；点击卡片外部区域自动折叠
+6. **交互** — `DefaultMenuBarInteractionRouter` 对支持 AXPress 的项目直接通过 Accessibility 触发点击，不支持的则合成 CGEvent 鼠标事件；收纳栏同时支持左键激活和右键上下文菜单
 
 ## 贡献
 

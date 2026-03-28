@@ -224,8 +224,8 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
                         requiresTrailingCluster: barName == kAXMenuBarAttribute as String
                     ) else { continue }
 
-                    let title = stringAttribute(child, name: kAXTitleAttribute as String)
-                        ?? stringAttribute(child, name: kAXDescriptionAttribute as String)
+                    let title = nonEmptyStringAttribute(child, name: kAXTitleAttribute as String)
+                        ?? nonEmptyStringAttribute(child, name: kAXDescriptionAttribute as String)
                         ?? app.localizedName
                         ?? app.bundleIdentifier
                         ?? environment.untitledFallback
@@ -297,7 +297,9 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
             guard bundleID != environment.currentBundleIdentifier else {
                 return nil
             }
-            let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ownerName
+            let title = (info[kCGWindowName as String] as? String)
+                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                ?? ownerName
             let seed = ItemIdentitySeed(
                 bundleID: bundleID,
                 axIdentifier: nil,
@@ -357,6 +359,13 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
             return nil
         }
         return value as? String
+    }
+
+    private nonisolated static func nonEmptyStringAttribute(_ element: AXUIElement, name: String) -> String? {
+        guard let value = stringAttribute(element, name: name) else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
     }
 
     private nonisolated static func recursiveChildren(of element: AXUIElement, depth: Int) -> [AXUIElement] {

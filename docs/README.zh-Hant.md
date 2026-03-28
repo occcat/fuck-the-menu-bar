@@ -19,22 +19,26 @@ macOS 選單列擠滿圖示，你受夠了。
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ 🍎  File  Edit  …                 [☁ 🔒 📶]  ≡     │  ← 選單列（圖示被磨砂遮罩覆蓋）
-│                              ┌─────────────────────┐ │
-│                              │  ☁   🔒   📶   ⚙️  │ │  ← 收納列（展開時浮出）
-│                              └─────────────────────┘ │
+│ 🍎  File  Edit  …                 [░░ ░░ ░░]  ≡     │  ← 選單列（圖示被磨砂遮罩覆蓋）
+│                                    ┌──────────┐      │
+│                                    │ ☁ iCloud │      │
+│                                    │ 🔒 1Pwd  │      │  ← 氣泡卡片（展開時浮出）
+│                                    │ 📶 Wi-Fi │      │
+│                                    └──────────┘      │
 └──────────────────────────────────────────────────────┘
 ```
 
 ## 特性
 
 - **雙通道發現** — 同時使用 Accessibility API（AXPress 路由）和 CGWindowList（Window Server），最大化偵測覆蓋率
+- **智慧去重** — 同一應用程式的多個選單列條目自動合併，保留互動能力最強的條目
 - **三種可見性規則** — 每個圖示可設為 *永遠顯示* / *隱藏到收納列* / *永遠隱藏*
 - **三種互動模式** — 優先代理點擊（AXPress）、先顯示再操作、僅真實點擊
-- **即時快照** — 利用螢幕錄製權限截取選單列圖示像素，收納列裡看到的就是真實圖示
+- **左鍵 + 右鍵** — 收納列中的項目同時支援左鍵啟動和右鍵上下文選單
+- **應用程式圖示** — 自動從 `.app` bundle 解析應用程式圖示（CFBundleIconFile / CFBundleIconName），收納列顯示真實應用程式圖示
 - **全域快捷鍵** — 預設 `⌘⌥M`，可自訂按鍵和修飾鍵組合
-- **液態玻璃 UI** — 磨砂遮罩 + 圓角膠囊收納條 + 微動效，致敬 Apple 最新設計語言
-- **收納排序** — 支援拖放排序和手動上下移動
+- **液態玻璃 UI** — 磨砂遮罩 + 縱向氣泡卡片收納列 + 彈性動效，致敬 Apple 最新設計語言
+- **點擊外部自動收起** — 展開收納列後，點擊氣泡外部任意區域自動摺疊
 - **多語言** — 簡體中文、繁體中文、English、日本語，App 內切換即時生效
 - **持久化設定** — JSON 格式儲存於 `~/.config/fuck-the-menu-bar/settings.json`，支援 v0 格式自動遷移
 - **開機自啟** — 基於 SMAppService，原生 macOS 登入項目
@@ -83,7 +87,7 @@ swift run FixtureMenuExtras
 | 權限 | 用途 | 必須？ |
 |------|------|--------|
 | **Accessibility** | 列舉選單列項目、觸發 AXPress 點擊路由 | ✅ 是 |
-| **Screen Recording** | 截取選單列圖示像素作為收納列快照 | ⬜ 建議 |
+| **Screen Recording** | 用於發現通道中標記項目的截圖能力 | ⬜ 可選 |
 
 首次啟動會彈出引導視窗，引導你逐一授權。若 macOS 沒有即時反映權限變更，可點選「重新整理狀態」手動偵測。
 
@@ -128,11 +132,8 @@ Tests/
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
   "appearance": {
-    "itemSpacing": 8,
-    "showLabels": false,
     "collapsedMaskOpacity": 0.92,
-    "animationDuration": 0.18,
-    "stripPadding": 10
+    "animationDuration": 0.18
   },
   "hotkey": {
     "keyCode": 46,
@@ -149,9 +150,10 @@ Tests/
 
 1. **發現** — `SystemMenuBarDiscoveryService` 每 5 秒掃描一次，透過 AX API 遍歷所有執行中 App 的 `AXExtrasMenuBar` / `AXMenuBar`，同時透過 `CGWindowListCopyWindowInfo` 補充僅 Window Server 可見的項目。App 處於前台時自動暫停掃描，切到背景後恢復
 2. **身份** — `MenuBarIdentityBuilder` 為每個圖示產生穩定 ID：優先使用 AX Identifier，退回標題，最終使用幾何簽章
-3. **佈局** — `DefaultMenuBarLayoutEngine` 根據可見性規則將項目分為三組：始終可見、遮罩覆蓋、收納列展示
-4. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加磨砂遮罩，展開時渲染收納條
-5. **互動** — `DefaultMenuBarInteractionRouter` 對支援 AXPress 的項目直接透過 Accessibility 觸發點擊，不支援的則合成 CGEvent 滑鼠事件
+3. **去重** — `AppModel` 按應用程式名稱對發現結果進行智慧去重，保留互動能力最強的條目（優先保留有使用者自訂規則、支援 AXPress、來自 Accessibility 通道的項目）
+4. **佈局** — `DefaultMenuBarLayoutEngine` 根據可見性規則將項目分為三組：始終可見、遮罩覆蓋、收納列展示
+5. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加磨砂遮罩，展開時渲染縱向氣泡卡片；點擊卡片外部區域自動摺疊
+6. **互動** — `DefaultMenuBarInteractionRouter` 對支援 AXPress 的項目直接透過 Accessibility 觸發點擊，不支援的則合成 CGEvent 滑鼠事件；收納列同時支援左鍵啟動和右鍵上下文選單
 
 ## 貢獻
 

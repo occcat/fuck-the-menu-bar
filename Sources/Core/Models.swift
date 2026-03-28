@@ -37,6 +37,11 @@ public enum RevealState: String, Codable, Hashable, Sendable {
     case expanded
 }
 
+public enum MenuBarClickButton: String, Hashable, Sendable {
+    case left
+    case right
+}
+
 public enum AppLanguage: String, Codable, CaseIterable, Hashable, Sendable, Identifiable {
     case system
     case english = "en"
@@ -181,6 +186,7 @@ public struct VisibilityRule: Identifiable, Codable, Hashable, Sendable {
 public struct ManagedItemSnapshot: Identifiable {
     public var id: String
     public var image: NSImage?
+    public var iconFilePath: String?
     public var displayName: String
     public var size: CGSize
     public var capturedAt: Date
@@ -188,12 +194,14 @@ public struct ManagedItemSnapshot: Identifiable {
     public init(
         id: String,
         image: NSImage?,
+        iconFilePath: String? = nil,
         displayName: String,
         size: CGSize,
         capturedAt: Date = .now
     ) {
         self.id = id
         self.image = image
+        self.iconFilePath = iconFilePath
         self.displayName = displayName
         self.size = size
         self.capturedAt = capturedAt
@@ -296,6 +304,12 @@ public struct ManagedMenuBarItem: Identifiable, Hashable {
 
     public var displayName: String {
         rule.customName ?? descriptor.displayName
+    }
+
+    public func withDisplayName(_ displayName: String) -> ManagedMenuBarItem {
+        var copy = self
+        copy.descriptor.displayName = displayName
+        return copy
     }
 
     public static func == (lhs: ManagedMenuBarItem, rhs: ManagedMenuBarItem) -> Bool {

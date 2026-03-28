@@ -6,6 +6,15 @@ import SwiftUI
 
 @MainActor
 public final class MenuBarOverlayController {
+    fileprivate static let collapsedPanelHeight: CGFloat = 44
+    fileprivate static let expandedPanelPadding: CGFloat = 14
+    fileprivate static let expandedBubbleTopInset: CGFloat = 52
+    fileprivate static let expandedBubbleAnchorGap: CGFloat = 58
+    fileprivate static let expandedBubbleBottomInset: CGFloat = 18
+    fileprivate static let bubbleWidth: CGFloat = 260
+    fileprivate static let bubbleRowHeight: CGFloat = 48
+    fileprivate static let bubbleSpacing: CGFloat = 8
+
     public final class State: ObservableObject {
         @Published var layout = MenuBarLayoutResult(visibleItems: [], maskedItems: [], shelfItems: [])
         @Published var appearance = AppearanceSettings()
@@ -13,15 +22,18 @@ public final class MenuBarOverlayController {
         @Published var windowFrame: CGRect = .zero
         @Published var screenFrame: CGRect = .zero
         @Published var anchorFrame: CGRect?
+        @Published var bubbleFrame: CGRect = .zero
         @Published var temporarilyRevealed: Set<String> = []
 
-        var onActivate: ((ManagedMenuBarItem) -> Void)?
-        var onOpenSettings: (() -> Void)?
-        var onMove: ((IndexSet, Int) -> Void)?
+        var onActivate: ((ManagedMenuBarItem, MenuBarClickButton) -> Void)?
+        var onRequestCollapse: (() -> Void)?
     }
 
     private let state = State()
     private var window: NSPanel?
+    private var localClickMonitor: Any?
+    private var globalClickMonitor: Any?
+    private var collapseWorkItem: DispatchWorkItem?
 
     public init() {}
 
@@ -31,20 +43,37 @@ public final class MenuBarOverlayController {
         layout: MenuBarLayoutResult,
         appearance: AppearanceSettings,
         anchorFrame: CGRect?,
-        onActivate: @escaping (ManagedMenuBarItem) -> Void,
-        onOpenSettings: @escaping () -> Void,
-        onMove: @escaping (IndexSet, Int) -> Void
+        onActivate: @escaping (ManagedMenuBarItem, MenuBarClickButton) -> Void,
+        onRequestCollapse: @escaping () -> Void
     ) {
         guard let screen else {
             hide()
             return
         }
 
+        collapseWorkItem?.cancel()
+        let shouldHoldExpandedFrameForCollapse =
+            state.revealState == .expanded &&
+            revealState == .collapsed &&
+            !state.layout.shelfItems.isEmpty
+        let frameRevealState: RevealState = shouldHoldExpandedFrameForCollapse ? .expanded : revealState
+        let panelHeight = panelHeight(
+            for: layout,
+            revealState: frameRevealState,
+            screenFrame: screen.frame,
+            anchorFrame: anchorFrame
+        )
         let windowFrame = CGRect(
             x: screen.frame.minX,
-            y: screen.frame.maxY - 96,
+            y: screen.frame.maxY - panelHeight,
             width: screen.frame.width,
-            height: 96
+            height: panelHeight
+        )
+        let bubbleFrame = bubbleFrame(
+            in: windowFrame,
+            layout: layout,
+            revealState: frameRevealState,
+            anchorFrame: anchorFrame
         )
 
         state.layout = layout
@@ -53,9 +82,9 @@ public final class MenuBarOverlayController {
         state.windowFrame = windowFrame
         state.screenFrame = screen.frame
         state.anchorFrame = anchorFrame
+        state.bubbleFrame = bubbleFrame
         state.onActivate = onActivate
-        state.onOpenSettings = onOpenSettings
-        state.onMove = onMove
+        state.onRequestCollapse = onRequestCollapse
 
         if window == nil {
             let panel = NSPanel(
@@ -76,10 +105,30 @@ public final class MenuBarOverlayController {
         }
 
         window?.setFrame(windowFrame, display: true)
-        if layout.maskedItems.isEmpty && layout.shelfItems.isEmpty {
+        window?.ignoresMouseEvents = !(revealState == .expanded && !layout.shelfItems.isEmpty)
+        if layout.maskedItems.isEmpty {
             window?.orderOut(nil)
         } else {
             window?.orderFrontRegardless()
+        }
+
+        updateEventMonitors(isExpanded: revealState == .expanded && !layout.shelfItems.isEmpty)
+
+        if shouldHoldExpandedFrameForCollapse {
+            let collapseDelay = max(appearance.animationDuration, 0.18)
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, self.state.revealState == .collapsed else { return }
+                let collapsedFrame = CGRect(
+                    x: screen.frame.minX,
+                    y: screen.frame.maxY - Self.collapsedPanelHeight,
+                    width: screen.frame.width,
+                    height: Self.collapsedPanelHeight
+                )
+                self.state.windowFrame = collapsedFrame
+                self.window?.setFrame(collapsedFrame, display: true)
+            }
+            collapseWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: workItem)
         }
     }
 
@@ -91,7 +140,108 @@ public final class MenuBarOverlayController {
     }
 
     public func hide() {
+        collapseWorkItem?.cancel()
+        removeEventMonitors()
         window?.orderOut(nil)
+    }
+
+    private func panelHeight(
+        for layout: MenuBarLayoutResult,
+        revealState: RevealState,
+        screenFrame: CGRect,
+        anchorFrame: CGRect?
+    ) -> CGFloat {
+        guard revealState == .expanded, !layout.shelfItems.isEmpty else {
+            return Self.collapsedPanelHeight
+        }
+
+        let rows = min(max(layout.shelfItems.count, 1), 5)
+        let bubbleHeight =
+            CGFloat(rows) * Self.bubbleRowHeight +
+            CGFloat(max(rows - 1, 0)) * Self.bubbleSpacing +
+            Self.expandedPanelPadding * 2
+        let topClearance: CGFloat
+        if let anchorFrame {
+            topClearance = max(
+                screenFrame.maxY - anchorFrame.minY + Self.expandedBubbleAnchorGap,
+                Self.expandedBubbleTopInset
+            )
+        } else {
+            topClearance = Self.expandedBubbleTopInset
+        }
+        return max(
+            Self.collapsedPanelHeight,
+            bubbleHeight + topClearance + Self.expandedBubbleBottomInset
+        )
+    }
+
+    private func bubbleFrame(
+        in windowFrame: CGRect,
+        layout: MenuBarLayoutResult,
+        revealState: RevealState,
+        anchorFrame: CGRect?
+    ) -> CGRect {
+        guard revealState == .expanded, !layout.shelfItems.isEmpty else {
+            return .zero
+        }
+
+        let rows = min(max(layout.shelfItems.count, 1), 5)
+        let bubbleHeight =
+            CGFloat(rows) * Self.bubbleRowHeight +
+            CGFloat(max(rows - 1, 0)) * Self.bubbleSpacing +
+            Self.expandedPanelPadding * 2
+        let maxX = windowFrame.maxX - Self.expandedPanelPadding - Self.bubbleWidth
+        let minX = windowFrame.minX + Self.expandedPanelPadding
+        let anchoredMidX = anchorFrame?.midX ?? windowFrame.midX
+        let originX = min(max(anchoredMidX - (Self.bubbleWidth / 2), minX), maxX)
+        let preferredBubbleMaxY = (anchorFrame?.minY ?? windowFrame.maxY) - Self.expandedBubbleAnchorGap
+        let minimumBubbleMaxY = windowFrame.minY + bubbleHeight + Self.expandedBubbleBottomInset
+        let bubbleMaxY = max(preferredBubbleMaxY, minimumBubbleMaxY)
+        let originY = bubbleMaxY - bubbleHeight
+
+        return CGRect(x: originX, y: originY, width: Self.bubbleWidth, height: bubbleHeight)
+    }
+
+    private func updateEventMonitors(isExpanded: Bool) {
+        guard isExpanded else {
+            removeEventMonitors()
+            return
+        }
+
+        if localClickMonitor == nil {
+            localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                self?.handleInteraction(at: NSEvent.mouseLocation)
+                return event
+            }
+        }
+
+        if globalClickMonitor == nil {
+            globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                self?.handleInteraction(at: NSEvent.mouseLocation)
+            }
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+            self.localClickMonitor = nil
+        }
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+    }
+
+    private func handleInteraction(at screenLocation: CGPoint) {
+        guard state.revealState == .expanded else { return }
+        if state.bubbleFrame.contains(screenLocation) {
+            return
+        }
+        if let anchorFrame = state.anchorFrame, anchorFrame.insetBy(dx: -10, dy: -10).contains(screenLocation) {
+            return
+        }
+        state.onRequestCollapse?()
     }
 }
 
@@ -103,73 +253,54 @@ private struct OverlayRootView: View {
         ZStack(alignment: .topLeading) {
             ForEach(state.layout.maskedItems) { item in
                 if !state.temporarilyRevealed.contains(item.id) {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.ultraThinMaterial.opacity(state.appearance.collapsedMaskOpacity))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.white.opacity(0.16), lineWidth: 0.6)
-                        )
-                        .frame(width: max(item.descriptor.bounds.width, 18), height: max(item.descriptor.bounds.height, 18))
+                    MaskedMenuBarItemView(maskOpacity: maskOpacity)
+                        .frame(width: max(item.descriptor.bounds.width + 8, 22), height: max(item.descriptor.bounds.height + 8, 22))
                         .position(position(for: item.descriptor.bounds))
                 }
             }
 
             if state.revealState == .expanded, !state.layout.shelfItems.isEmpty {
-                shelfStrip
+                shelfBubble
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .top).combined(with: .scale(scale: 0.94)).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .scale(scale: 0.98)).combined(with: .opacity)
+                        )
+                    )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.clear)
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: state.revealState)
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: state.layout.shelfItems.map(\.id))
     }
 
-    private var shelfStrip: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: state.appearance.itemSpacing) {
-                ForEach(Array(state.layout.shelfItems.enumerated()), id: \.element.id) { _, item in
-                    ShelfItemView(item: item, showLabel: state.appearance.showLabels)
-                        .onTapGesture {
-                            state.onActivate?(item)
-                        }
-                        .draggable(item.id)
-                        .dropDestination(for: String.self) { items, _ in
-                            guard let draggedID = items.first,
-                                  let fromIndex = state.layout.shelfItems.firstIndex(where: { $0.id == draggedID }),
-                                  let toIndex = state.layout.shelfItems.firstIndex(where: { $0.id == item.id }) else {
-                                return false
-                            }
-                            state.onMove?(IndexSet(integer: fromIndex), toIndex > fromIndex ? toIndex + 1 : toIndex)
-                            return true
-                        }
-                }
+    private var shelfBubble: some View {
+        VStack(alignment: .leading, spacing: MenuBarOverlayController.bubbleSpacing) {
+            ForEach(state.layout.shelfItems) { item in
+                ShelfItemButton(
+                    item: item,
+                    onLeftClick: { state.onActivate?(item, .left) },
+                    onRightClick: { state.onActivate?(item, .right) }
+                )
             }
-            .padding(.horizontal, state.appearance.stripPadding)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8)
-            )
-
-            Button(L10n.string("action.open_settings")) {
-                state.onOpenSettings?()
-            }
-            .buttonStyle(.link)
-            .font(.system(size: 11, weight: .medium))
-            .padding(.top, 6)
         }
-        .position(x: stripX, y: 48)
-        .animation(.easeInOut(duration: state.appearance.animationDuration), value: state.layout.shelfItems.map(\.id))
+        .padding(MenuBarOverlayController.expandedPanelPadding)
+        .frame(width: state.bubbleFrame.width, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+        )
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+        .position(
+            x: state.bubbleFrame.midX - state.windowFrame.minX,
+            y: state.bubbleFrame.midY - state.windowFrame.minY
+        )
     }
 
-    private var stripX: CGFloat {
-        let totalWidth = state.layout.shelfItems.reduce(CGFloat(20), { partial, item in
-            partial + max(item.snapshot?.size.width ?? item.descriptor.bounds.width, 18) + state.appearance.itemSpacing
-        })
-        let defaultX = min(max(totalWidth / 2 + 20, 80), state.windowFrame.width - max(totalWidth / 2 + 20, 80))
-        guard let anchorFrame = state.anchorFrame else { return defaultX }
-        let anchored = anchorFrame.midX - state.windowFrame.minX
-        let inset = max(totalWidth / 2 + 20, 80)
-        return min(max(anchored, inset), state.windowFrame.width - inset)
+    private var maskOpacity: Double {
+        min(max(state.appearance.collapsedMaskOpacity, 0.9), 1.0)
     }
 
     private func position(for rect: CGRect) -> CGPoint {
@@ -180,33 +311,110 @@ private struct OverlayRootView: View {
     }
 }
 
-private struct ShelfItemView: View {
-    let item: ManagedMenuBarItem
-    let showLabel: Bool
+private struct MaskedMenuBarItemView: View {
+    let maskOpacity: Double
 
     var body: some View {
-        VStack(spacing: 4) {
-            Group {
-                if let image = item.snapshot?.image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "menubar.rectangle")
-                        .symbolRenderingMode(.hierarchical)
-                }
-            }
-            .frame(width: max(item.snapshot?.size.width ?? item.descriptor.bounds.width, 18), height: 18)
-
-            if showLabel {
-                Text(item.displayName)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-            }
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        ZStack {
+            shape.fill(Color.black.opacity(maskOpacity))
+            shape.fill(.ultraThinMaterial.opacity(0.14))
+            shape.stroke(Color.white.opacity(0.08), lineWidth: 0.6)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ShelfItemRow: View {
+    let item: ManagedMenuBarItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            iconView
+                .frame(width: 24, height: 24)
+                .padding(8)
+                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            Text(item.displayName)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        if let image = item.snapshot?.image {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            Text("❌")
+                .font(.system(size: 18))
+        }
+    }
+}
+
+private struct ShelfItemButton: View {
+    let item: ManagedMenuBarItem
+    let onLeftClick: () -> Void
+    let onRightClick: () -> Void
+
+    var body: some View {
+        ShelfItemRow(item: item)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                MouseClickCapture(onLeftClick: onLeftClick, onRightClick: onRightClick)
+            }
+            .accessibilityLabel(item.displayName)
+    }
+}
+
+private struct MouseClickCapture: NSViewRepresentable {
+    let onLeftClick: () -> Void
+    let onRightClick: () -> Void
+
+    func makeNSView(context: Context) -> MouseClickCaptureView {
+        let view = MouseClickCaptureView()
+        view.onLeftClick = onLeftClick
+        view.onRightClick = onRightClick
+        return view
+    }
+
+    func updateNSView(_ nsView: MouseClickCaptureView, context: Context) {
+        nsView.onLeftClick = onLeftClick
+        nsView.onRightClick = onRightClick
+    }
+}
+
+private final class MouseClickCaptureView: NSView {
+    var onLeftClick: (() -> Void)?
+    var onRightClick: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onLeftClick?()
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        onRightClick?()
     }
 }
