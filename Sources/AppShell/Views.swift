@@ -236,6 +236,7 @@ private struct ItemsSettingsView: View {
                                 }
                                 .padding(14)
                                 .softRowBackground()
+                                .opacity(draggingItemID == item.id ? 0 : 1)
                                 .onDrag {
                                     draggingItemID = item.id
                                     return NSItemProvider(object: item.id as NSString)
@@ -246,8 +247,7 @@ private struct ItemsSettingsView: View {
                                         item: item,
                                         shelfOrder: $shelfOrder,
                                         draggingItemID: $draggingItemID,
-                                        model: model,
-                                        hiddenItems: hiddenItems
+                                        model: model
                                     )
                                 )
                             }
@@ -283,7 +283,6 @@ private struct ShelfDropDelegate: DropDelegate {
     @Binding var shelfOrder: [ManagedMenuBarItem]
     @Binding var draggingItemID: String?
     let model: AppModel
-    let hiddenItems: [ManagedMenuBarItem]
 
     func dropEntered(info: DropInfo) {
         guard let draggingItemID,
@@ -309,23 +308,8 @@ private struct ShelfDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         defer { draggingItemID = nil }
-
-        guard let draggingItemID,
-              let sourceIndex = hiddenItems.firstIndex(where: { $0.id == draggingItemID }),
-              let destinationIndexInOrder = shelfOrder.firstIndex(where: { $0.id == draggingItemID })
-        else {
-            return false
-        }
-
-        guard sourceIndex != destinationIndexInOrder else {
-            return true
-        }
-
-        let destination = destinationIndexInOrder > sourceIndex
-            ? destinationIndexInOrder + 1
-            : destinationIndexInOrder
-
-        model.moveShelfItems(from: IndexSet(integer: sourceIndex), to: destination)
+        let newOrder = shelfOrder.map(\.id)
+        model.setShelfOrder(newOrder)
         return true
     }
 }

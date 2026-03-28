@@ -227,6 +227,12 @@ final class AppModel: ObservableObject {
         rebuildManagedItems()
     }
 
+    func setShelfOrder(_ ids: [String]) {
+        settings.hiddenOrder = ids
+        persist()
+        rebuildManagedItems()
+    }
+
     func moveShelfItem(_ itemID: String, direction: MoveDirection) {
         var shelfIDs = managedItems.filter { $0.rule.kind == .hiddenInBar }.map(\.id)
         guard let index = shelfIDs.firstIndex(of: itemID) else { return }
