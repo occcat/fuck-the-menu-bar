@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Resolve binary path
+        id: paths
+        run: |
+          BIN_PATH=$(swift build -c release --show-bin-path)
+          echo "bin_path=$BIN_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Package .app bundle
+        run: |
+          set -euo pipefail
+          BIN_PATH="${{ steps.paths.outputs.bin_path }}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP_NAME="Fuck the Menu Bar"
+          APP_DIR="${APP_NAME}.app"
+
+          # Create .app structure
+          mkdir -p "${APP_DIR}/Contents/MacOS"
+          mkdir -p "${APP_DIR}/Contents/Resources"
+
+          # Copy binary
+          cp "${BIN_PATH}/fuck-the-menu-bar" "${APP_DIR}/Contents/MacOS/fuck-the-menu-bar"
+
+          # Generate Info.plist
+          cat > "${APP_DIR}/Contents/Info.plist" << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>fuck-the-menu-bar</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.occcat.fuck-the-menu-bar</string>
+            <key>CFBundleName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>14.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Create zip
+          ditto -c -k --keepParent "${APP_DIR}" "fuck-the-menu-bar-${VERSION}-macOS.zip"
+          echo "artifact=fuck-the-menu-bar-${VERSION}-macOS.zip" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            "${artifact}" \
+            --title "v${VERSION}" \
+            --generate-notes
