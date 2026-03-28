@@ -205,14 +205,24 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         var cache: [String: AXUIElement] = [:]
         for app in environment.runningApplications {
             let element = AXUIElementCreateApplication(app.processIdentifier)
-            let bars = [attribute(element, name: "AXExtrasMenuBar"), attribute(element, name: kAXMenuBarAttribute as String)]
-                .compactMap { $0 }
+            let bars: [(name: String, element: AXUIElement)] = [
+                ("AXExtrasMenuBar", attribute(element, name: "AXExtrasMenuBar")),
+                (kAXMenuBarAttribute as String, attribute(element, name: kAXMenuBarAttribute as String)),
+            ]
+            .compactMap { name, bar in
+                guard let bar else { return nil }
+                return (name, bar)
+            }
 
-            for bar in bars {
+            for (barName, bar) in bars {
                 let children = recursiveChildren(of: bar, depth: 2)
                 for child in children {
                     guard let bounds = frame(for: child), bounds.width > 0, bounds.height > 0 else { continue }
-                    guard isLikelyMenuBarItem(bounds: bounds, screenFrames: environment.screenFrames) else { continue }
+                    guard isLikelyMenuBarItem(
+                        bounds: bounds,
+                        screenFrames: environment.screenFrames,
+                        requiresTrailingCluster: barName == kAXMenuBarAttribute as String
+                    ) else { continue }
 
                     let title = stringAttribute(child, name: kAXTitleAttribute as String)
                         ?? stringAttribute(child, name: kAXDescriptionAttribute as String)
@@ -309,10 +319,28 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         }
     }
 
-    private nonisolated static func isLikelyMenuBarItem(bounds: CGRect, screenFrames: [CGRect]) -> Bool {
+    private nonisolated static func isLikelyMenuBarItem(
+        bounds: CGRect,
+        screenFrames: [CGRect],
+        requiresTrailingCluster: Bool = false
+    ) -> Bool {
         screenFrames.contains { screen in
             let topInset = screen.maxY - bounds.maxY
-            return topInset >= -4 && topInset <= 40 && bounds.maxX <= screen.maxX && bounds.minX >= screen.minX
+            let topOriginInset = bounds.minY - screen.minY
+            let intersectsTopBand =
+                (topInset >= -4 && topInset <= 40) ||
+                (topOriginInset >= -4 && topOriginInset <= 40)
+            guard intersectsTopBand,
+                  bounds.maxX <= screen.maxX,
+                  bounds.minX >= screen.minX else {
+                return false
+            }
+
+            if requiresTrailingCluster {
+                return bounds.midX >= screen.midX
+            }
+
+            return true
         }
     }
 
