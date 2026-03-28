@@ -148,6 +148,18 @@ sequenceDiagram
     Model->>OC: update(layout, appearance, ...)
     OC->>Panel: setFrame + orderFrontRegardless
     Panel-->>Panel: SwiftUI OverlayRootView renders mask + bubble card
+
+    Note over Model,Panel: User clicks a shelf item
+
+    alt AXPress available (proxyPreferred + canPerformPress)
+        Model->>Model: tryAccessibilityPress(item) → true
+        Model->>OC: collapseReveal()
+    else CGEvent fallback
+        Model->>OC: hide() + revealState = .collapsed
+        Model->>Model: asyncAfter(150ms)
+        Model->>Model: interactionRouter.activate(item, button)
+        Model->>Model: asyncAfter(50ms) → updateOverlay()
+    end
 ```
 
 ---
@@ -176,8 +188,8 @@ flowchart LR
 | **2. Identify** | `Core` | `ItemIdentitySeed` | Stable `String` ID | Priority: AX Identifier > title > geometry signature (`minX:width:height`). Enables persistent rules even when icon positions shift |
 | **3. Dedupe** | `AppShell` | `[ManagedMenuBarItem]` | Deduplicated `[ManagedMenuBarItem]` | `deduplicateManagedItems()` groups items by normalized app name (case-insensitive, trimmed). Scoring: user-defined rule (+100), `canPerformPress` (+20), AX source (+10), visibility rule weight (+2/+4). Keeps highest-scoring entry per app |
 | **4. Layout** | `LayoutEngine` | `[ManagedMenuBarItem]` + rules + hidden order | `MenuBarLayoutResult` | Items sorted by screen X. Three buckets: `alwaysVisible` (untouched), `hiddenInBar` + `alwaysHidden` (masked), `hiddenInBar` (shelf). Shelf respects user drag-order |
-| **5. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, dynamic height based on shelf item count (44 pt collapsed, expands for bubble). Masked items get opaque frosted `RoundedRectangle` overlays. Shelf rendered as vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) with `ShelfItemRow` per item showing resolved app icon + name. Global/local click monitors auto-collapse on outside click |
-| **6. Interact** | `Overlay` | User click on shelf item | Menu bar action triggered | `DefaultMenuBarInteractionRouter` routes by `ProxyInteractionMode` and `MenuBarClickButton`: left-click uses `proxyPreferred` (tries `AXUIElementPerformAction(kAXPressAction)` first, falls back to synthesized `CGEvent`), right-click always synthesizes `CGEvent` right-mouse-down/up at item midpoint |
+| **5. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, dynamic height based on shelf item count (44 pt collapsed, expands for bubble). Masked items get opaque frosted `RoundedRectangle` overlays (`ultraThinMaterial` layer skipped when mask opacity is 1.0). Shelf rendered as vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) with `ShelfItemRow` per item showing resolved app icon + name. Bubble offset from menu bar is configurable via `bubbleVerticalOffset` (default 58 pt). Global/local click monitors auto-collapse on outside click |
+| **6. Interact** | `Overlay` | User click on shelf item | Menu bar action triggered | `AppModel.activate()` first attempts `tryAccessibilityPress()` for left-click + `proxyPreferred` items — on success, collapses overlay without hiding it. On failure (or right-click), hides overlay first, delays 150 ms, then `DefaultMenuBarInteractionRouter.activate()` routes by `ProxyInteractionMode` and `MenuBarClickButton`: left-click tries AXPress then falls back to synthesized `CGEvent`; right-click always synthesizes `CGEvent` right-mouse-down/up at item midpoint. After CGEvent, auto-refreshes overlay state after 50 ms |
 
 ---
 
@@ -228,11 +240,11 @@ Pure function: `computeLayout(input:) -> MenuBarLayoutResult`.
 
 Three co-located types in the `Overlay` module:
 
-1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width with dynamic height: 44 pt when collapsed, expanding based on shelf item count when revealed. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders opaque frosted mask rectangles over hidden items and a vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) showing `ShelfItemRow`s with resolved app icons. Registers global and local click monitors to auto-collapse when clicking outside the bubble. Supports `temporarilyReveal(itemID:)` for brief reveal animations. Delayed frame shrink on collapse prevents animation clipping.
+1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width with dynamic height: 44 pt when collapsed, expanding based on shelf item count when revealed. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders opaque frosted mask rectangles over hidden items (skips `ultraThinMaterial` layer when mask opacity is 1.0 for performance) and a vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) showing `ShelfItemRow`s with resolved app icons. Bubble vertical offset from the menu bar is configurable via `appearance.bubbleVerticalOffset` (default 58 pt, range 30–120 pt). Registers global and local click monitors to auto-collapse when clicking outside the bubble. Supports `temporarilyReveal(itemID:)` for brief reveal animations. Delayed frame shrink on collapse prevents animation clipping.
 
 2. **`MenuBarSnapshotProvider`** — Resolves app icons from `.app` bundles by reading `CFBundleIconFile` / `CFBundleIconName` / `CFBundleIcons` from `Info.plist`, then searching the bundle's `Resources` directory for `.icns`, `.png`, or `.pdf` files. Falls back to enumerating the Resources directory for any icon file. Cache keyed by item ID with bundle-ID + icon-file-path signature.
 
-3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Accepts a `MenuBarClickButton` parameter (`.left` / `.right`). Three strategies for left-click:
+3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Exposes `tryAccessibilityPress(item:) -> Bool` for callers to attempt an AXPress without hiding the overlay first. Accepts a `MenuBarClickButton` parameter (`.left` / `.right`). Three strategies for left-click:
    - `proxyPreferred`: Try `AXUIElementPerformAction("AXPress")` from cache, re-scan on miss, fall back to real click
    - `revealBeforeAction` / `realClickOnly`: Synthesize `CGEvent` mouse down + mouse up at item midpoint
    Right-click always synthesizes `CGEvent` right-mouse-down + right-mouse-up, bypassing AXPress.
@@ -290,6 +302,7 @@ Application entry point and coordination hub.
   - Reacts to `onItemsDidChange` from Discovery
   - Deduplicates discovered items by app name via `deduplicateManagedItems()` with scoring-based selection
   - Filters out self-referencing items via `isCurrentAppItem()` (PID, bundle ID, and display name matching)
+  - `activate()` uses a two-phase strategy: first attempts `tryAccessibilityPress()` (no overlay hide needed), falls back to hiding overlay + delayed CGEvent + 50 ms post-click refresh
   - Drives layout computation and overlay updates
   - Persists settings on every mutation
   - Manages hotkey registration lifecycle
@@ -327,12 +340,13 @@ settings.json (schemaVersion: 1)
 │   └── interactionMode          ← proxyPreferred | revealBeforeAction | realClickOnly
 ├── hiddenOrder: [String]        ← ordered shelf item IDs
 ├── appearance: AppearanceSettings
-│   ├── collapsedMaskOpacity: 0.92
-│   └── animationDuration: 0.18
+│   ├── collapsedMaskOpacity: 1.0
+│   ├── animationDuration: 0.18
+│   └── bubbleVerticalOffset: 58
 ├── hotkey: HotkeyConfiguration
 │   ├── keyCode: 46 (M)
 │   ├── modifiers: 2304 (Cmd+Opt)
-│   └── isEnabled: true
+│   └── isEnabled: false
 ├── preferredLanguage: AppLanguage
 ├── launchAtLogin: Bool
 └── completedOnboarding: Bool

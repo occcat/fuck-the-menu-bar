@@ -26,7 +26,7 @@
 "settings.subtitle.appearance" = "调整密度、动画与磨砂遮罩强度。";
 "settings.subtitle.shortcuts" = "设置用于立即展开隐藏条的全局快捷键。";
 "settings.subtitle.general" = "权限、开机启动与运行诊断。";
-"sidebar.tagline" = "液态玻璃控制中心";
+"sidebar.tagline" = "控制中心";
 "sidebar.snapshot" = "概览";
 "sidebar.caption.items" = "规则与排序";
 "sidebar.caption.appearance" = "材质与动效";
@@ -56,7 +56,9 @@
 "search.menu_items" = "搜索菜单栏项目或 Bundle ID";
 "empty.shelf_order" = "当前还没有收纳项。将项目设为“隐藏到收纳栏”后即可管理顺序。";
 "badge.ax_press" = "AX 点击";
+"badge.ax_press.tooltip" = "通过 macOS 辅助功能接口（Accessibility API）模拟点击，无需移动鼠标光标，兼容性最佳。";
 "badge.real_click" = "真实点击";
+"badge.real_click.tooltip" = "该应用不支持辅助功能点击，需要通过合成鼠标事件在屏幕坐标上模拟真实点击。";
 "field.visibility" = "可见性";
 "field.interaction" = "交互方式";
 "field.custom_name" = "自定义名称";
@@ -69,6 +71,8 @@
 "field.mask_opacity.detail" = "项目隐藏时磨砂遮罩的浓度。";
 "field.animation" = "动画";
 "field.animation.detail" = "展开与收起的过渡时长。";
+"field.bubble_offset" = "气泡偏移";
+"field.bubble_offset.detail" = "收纳栏气泡距离菜单栏的垂直距离。";
 "field.enable_global_shortcut" = "启用全局快捷键";
 "field.enable_global_shortcut.detail" = "应用运行时注册系统级快捷键。";
 "field.current_shortcut" = "当前快捷键";

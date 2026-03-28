@@ -26,7 +26,7 @@
 "settings.subtitle.appearance" = "密度、アニメーション、フロストマスクの強さを調整します。";
 "settings.subtitle.shortcuts" = "隠しストリップをすぐ開くためのグローバルショートカットを設定します。";
 "settings.subtitle.general" = "権限、ログイン時起動、実行時診断。";
-"sidebar.tagline" = "リキッドグラス操作センター";
+"sidebar.tagline" = "コントロールセンター";
 "sidebar.snapshot" = "概要";
 "sidebar.caption.items" = "ルールと並び順";
 "sidebar.caption.appearance" = "素材とモーション";
@@ -56,7 +56,9 @@
 "search.menu_items" = "メニューバー項目または Bundle ID を検索";
 "empty.shelf_order" = "まだ棚に入った項目はありません。項目を「棚に隠す」に設定すると順序を管理できます。";
 "badge.ax_press" = "AX Press";
+"badge.ax_press.tooltip" = "macOS アクセシビリティ API を使ってカーソルを動かさずにクリックを実行します。最も安定した操作方法です。";
 "badge.real_click" = "実クリック";
+"badge.real_click.tooltip" = "このアプリはアクセシビリティ操作に対応していないため、画面座標に合成マウスイベントを送信します。";
 "field.visibility" = "表示";
 "field.interaction" = "操作方法";
 "field.custom_name" = "カスタム名";
@@ -69,6 +71,8 @@
 "field.mask_opacity.detail" = "項目を隠している間のフロストカバーの濃さです。";
 "field.animation" = "アニメーション";
 "field.animation.detail" = "展開と収納の時間です。";
+"field.bubble_offset" = "バブルオフセット";
+"field.bubble_offset.detail" = "棚バブルとメニューバーの垂直距離です。";
 "field.enable_global_shortcut" = "グローバルショートカットを有効化";
 "field.enable_global_shortcut.detail" = "アプリ実行中にシステム全体のホットキーを登録します。";
 "field.current_shortcut" = "現在のショートカット";

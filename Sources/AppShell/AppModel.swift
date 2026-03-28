@@ -288,13 +288,27 @@ final class AppModel: ObservableObject {
     }
 
     func activate(_ item: ManagedMenuBarItem, button: MenuBarClickButton = .left) {
-        collapseReveal()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+        // AXPress works without mouse coordinates — try it before collapsing the overlay
+        if button == .left && item.rule.interactionMode == .proxyPreferred {
+            if interactionRouter.tryAccessibilityPress(item: item.descriptor) {
+                collapseReveal()
+                return
+            }
+        }
+
+        // Real clicks post CGEvents at screen coordinates — hide overlay first to avoid interception
+        overlayController.hide()
+        revealState = .collapsed
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.interactionRouter.activate(
                 item: item.descriptor,
                 interactionMode: item.rule.interactionMode,
                 button: button
             )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.updateOverlay()
+            }
         }
     }
 

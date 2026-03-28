@@ -213,7 +213,7 @@ public struct HotkeyConfiguration: Codable, Hashable, Sendable {
     public var modifiers: UInt32
     public var isEnabled: Bool
 
-    public init(keyCode: UInt32 = 46, modifiers: UInt32 = UInt32(cmdKey | optionKey), isEnabled: Bool = true) {
+    public init(keyCode: UInt32 = 46, modifiers: UInt32 = UInt32(cmdKey | optionKey), isEnabled: Bool = false) {
         self.keyCode = keyCode
         self.modifiers = modifiers
         self.isEnabled = isEnabled
@@ -226,19 +226,22 @@ public struct AppearanceSettings: Codable, Hashable, Sendable {
     public var collapsedMaskOpacity: Double
     public var animationDuration: Double
     public var stripPadding: Double
+    public var bubbleVerticalOffset: Double
 
     public init(
         itemSpacing: Double = 8,
         showLabels: Bool = false,
-        collapsedMaskOpacity: Double = 0.92,
+        collapsedMaskOpacity: Double = 1.0,
         animationDuration: Double = 0.18,
-        stripPadding: Double = 10
+        stripPadding: Double = 10,
+        bubbleVerticalOffset: Double = 58
     ) {
         self.itemSpacing = itemSpacing
         self.showLabels = showLabels
         self.collapsedMaskOpacity = collapsedMaskOpacity
         self.animationDuration = animationDuration
         self.stripPadding = stripPadding
+        self.bubbleVerticalOffset = bubbleVerticalOffset
     }
 }
 

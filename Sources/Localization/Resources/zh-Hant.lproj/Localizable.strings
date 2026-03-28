@@ -26,7 +26,7 @@
 "settings.subtitle.appearance" = "調整密度、動畫與磨砂遮罩強度。";
 "settings.subtitle.shortcuts" = "設定用來立即展開隱藏列的全域快捷鍵。";
 "settings.subtitle.general" = "權限、登入啟動與執行診斷。";
-"sidebar.tagline" = "液態玻璃控制中心";
+"sidebar.tagline" = "控制中心";
 "sidebar.snapshot" = "概覽";
 "sidebar.caption.items" = "規則與排序";
 "sidebar.caption.appearance" = "材質與動效";
@@ -56,7 +56,9 @@
 "search.menu_items" = "搜尋選單列項目或 Bundle ID";
 "empty.shelf_order" = "目前還沒有收納項。將項目設為「隱藏到收納列」後即可管理順序。";
 "badge.ax_press" = "AX 點擊";
+"badge.ax_press.tooltip" = "透過 macOS 輔助使用介面（Accessibility API）模擬點擊，無需移動滑鼠游標，相容性最佳。";
 "badge.real_click" = "真實點擊";
+"badge.real_click.tooltip" = "該 App 不支援輔助使用點擊，需透過合成滑鼠事件在螢幕座標上模擬真實點擊。";
 "field.visibility" = "可見性";
 "field.interaction" = "互動方式";
 "field.custom_name" = "自訂名稱";
@@ -69,6 +71,8 @@
 "field.mask_opacity.detail" = "項目隱藏時磨砂遮罩的濃度。";
 "field.animation" = "動畫";
 "field.animation.detail" = "展開與收起的過渡時間。";
+"field.bubble_offset" = "氣泡偏移";
+"field.bubble_offset.detail" = "收納列氣泡與選單列之間的垂直距離。";
 "field.enable_global_shortcut" = "啟用全域快捷鍵";
 "field.enable_global_shortcut.detail" = "App 執行時註冊系統級快捷鍵。";
 "field.current_shortcut" = "目前快捷鍵";

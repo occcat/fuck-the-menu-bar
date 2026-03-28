@@ -9,7 +9,7 @@ public final class MenuBarOverlayController {
     fileprivate static let collapsedPanelHeight: CGFloat = 44
     fileprivate static let expandedPanelPadding: CGFloat = 14
     fileprivate static let expandedBubbleTopInset: CGFloat = 52
-    fileprivate static let expandedBubbleAnchorGap: CGFloat = 58
+    fileprivate static let defaultBubbleAnchorGap: CGFloat = 58
     fileprivate static let expandedBubbleBottomInset: CGFloat = 18
     fileprivate static let bubbleWidth: CGFloat = 260
     fileprivate static let bubbleRowHeight: CGFloat = 48
@@ -61,7 +61,8 @@ public final class MenuBarOverlayController {
             for: layout,
             revealState: frameRevealState,
             screenFrame: screen.frame,
-            anchorFrame: anchorFrame
+            anchorFrame: anchorFrame,
+            bubbleAnchorGap: CGFloat(appearance.bubbleVerticalOffset)
         )
         let windowFrame = CGRect(
             x: screen.frame.minX,
@@ -73,7 +74,8 @@ public final class MenuBarOverlayController {
             in: windowFrame,
             layout: layout,
             revealState: frameRevealState,
-            anchorFrame: anchorFrame
+            anchorFrame: anchorFrame,
+            bubbleAnchorGap: CGFloat(appearance.bubbleVerticalOffset)
         )
 
         state.layout = layout
@@ -149,7 +151,8 @@ public final class MenuBarOverlayController {
         for layout: MenuBarLayoutResult,
         revealState: RevealState,
         screenFrame: CGRect,
-        anchorFrame: CGRect?
+        anchorFrame: CGRect?,
+        bubbleAnchorGap: CGFloat
     ) -> CGFloat {
         guard revealState == .expanded, !layout.shelfItems.isEmpty else {
             return Self.collapsedPanelHeight
@@ -163,7 +166,7 @@ public final class MenuBarOverlayController {
         let topClearance: CGFloat
         if let anchorFrame {
             topClearance = max(
-                screenFrame.maxY - anchorFrame.minY + Self.expandedBubbleAnchorGap,
+                screenFrame.maxY - anchorFrame.minY + bubbleAnchorGap,
                 Self.expandedBubbleTopInset
             )
         } else {
@@ -179,7 +182,8 @@ public final class MenuBarOverlayController {
         in windowFrame: CGRect,
         layout: MenuBarLayoutResult,
         revealState: RevealState,
-        anchorFrame: CGRect?
+        anchorFrame: CGRect?,
+        bubbleAnchorGap: CGFloat
     ) -> CGRect {
         guard revealState == .expanded, !layout.shelfItems.isEmpty else {
             return .zero
@@ -194,7 +198,7 @@ public final class MenuBarOverlayController {
         let minX = windowFrame.minX + Self.expandedPanelPadding
         let anchoredMidX = anchorFrame?.midX ?? windowFrame.midX
         let originX = min(max(anchoredMidX - (Self.bubbleWidth / 2), minX), maxX)
-        let preferredBubbleMaxY = (anchorFrame?.minY ?? windowFrame.maxY) - Self.expandedBubbleAnchorGap
+        let preferredBubbleMaxY = (anchorFrame?.minY ?? windowFrame.maxY) - bubbleAnchorGap
         let minimumBubbleMaxY = windowFrame.minY + bubbleHeight + Self.expandedBubbleBottomInset
         let bubbleMaxY = max(preferredBubbleMaxY, minimumBubbleMaxY)
         let originY = bubbleMaxY - bubbleHeight
@@ -300,7 +304,7 @@ private struct OverlayRootView: View {
     }
 
     private var maskOpacity: Double {
-        min(max(state.appearance.collapsedMaskOpacity, 0.9), 1.0)
+        min(max(state.appearance.collapsedMaskOpacity, 0.5), 1.0)
     }
 
     private func position(for rect: CGRect) -> CGPoint {
@@ -318,7 +322,9 @@ private struct MaskedMenuBarItemView: View {
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         ZStack {
             shape.fill(Color.black.opacity(maskOpacity))
-            shape.fill(.ultraThinMaterial.opacity(0.14))
+            if maskOpacity < 1.0 {
+                shape.fill(.ultraThinMaterial.opacity(0.14))
+            }
             shape.stroke(Color.white.opacity(0.08), lineWidth: 0.6)
         }
     }

@@ -26,7 +26,7 @@
 "settings.subtitle.appearance" = "Adjust density, animation and the amount of frosted masking.";
 "settings.subtitle.shortcuts" = "Set the global trigger used to reveal the hidden strip instantly.";
 "settings.subtitle.general" = "Permissions, launch behavior and runtime diagnostics.";
-"sidebar.tagline" = "Liquid glass control center";
+"sidebar.tagline" = "Control Center";
 "sidebar.snapshot" = "Snapshot";
 "sidebar.caption.items" = "Rules and ordering";
 "sidebar.caption.appearance" = "Materials and motion";
@@ -56,7 +56,9 @@
 "search.menu_items" = "Search menu bar items or bundle IDs";
 "empty.shelf_order" = "Nothing is shelved yet. Set an item to Hidden in Shelf to manage its order.";
 "badge.ax_press" = "AX Press";
+"badge.ax_press.tooltip" = "Uses macOS Accessibility API to simulate a press without moving the cursor. Most reliable interaction method.";
 "badge.real_click" = "Real Click";
+"badge.real_click.tooltip" = "This app does not support Accessibility press. A synthetic mouse event is posted at screen coordinates instead.";
 "field.visibility" = "Visibility";
 "field.interaction" = "Interaction";
 "field.custom_name" = "Custom Name";
@@ -69,6 +71,8 @@
 "field.mask_opacity.detail" = "Density of the frosted cover while items are hidden.";
 "field.animation" = "Animation";
 "field.animation.detail" = "Reveal and collapse timing for the strip.";
+"field.bubble_offset" = "Bubble offset";
+"field.bubble_offset.detail" = "Vertical distance between the shelf bubble and the menu bar.";
 "field.enable_global_shortcut" = "Enable global shortcut";
 "field.enable_global_shortcut.detail" = "Registers a system-wide hotkey while the app is running.";
 "field.current_shortcut" = "Current shortcut";

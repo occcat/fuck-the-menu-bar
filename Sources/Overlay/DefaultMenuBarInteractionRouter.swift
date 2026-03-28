@@ -7,6 +7,10 @@ import Foundation
 public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProtocol {
     public init() {}
 
+    public func tryAccessibilityPress(item: MenuBarItemDescriptor) -> Bool {
+        performAccessibilityPress(for: item)
+    }
+
     public func activate(item: MenuBarItemDescriptor, interactionMode: ProxyInteractionMode, button: MenuBarClickButton) {
         if button == .right {
             performRealClick(for: item, button: .right)

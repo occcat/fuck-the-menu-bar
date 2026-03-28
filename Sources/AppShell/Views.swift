@@ -287,10 +287,15 @@ private struct ManagedItemCard: View {
 
                 Spacer()
 
-                StatusBadge(
-                    title: item.descriptor.capabilities.canPerformPress ? L10n.string("badge.ax_press") : L10n.string("badge.real_click"),
-                    tint: item.descriptor.capabilities.canPerformPress ? .mint : .orange
-                )
+                HStack(spacing: 6) {
+                    StatusBadge(
+                        title: item.descriptor.capabilities.canPerformPress ? L10n.string("badge.ax_press") : L10n.string("badge.real_click"),
+                        tint: item.descriptor.capabilities.canPerformPress ? .mint : .orange
+                    )
+                    InfoTooltipButton(
+                        tooltip: item.descriptor.capabilities.canPerformPress ? L10n.string("badge.ax_press.tooltip") : L10n.string("badge.real_click.tooltip")
+                    )
+                }
             }
 
             HStack(spacing: 12) {
@@ -390,7 +395,7 @@ private struct AppearanceSettingsView: View {
                                     get: { model.settings.appearance.collapsedMaskOpacity },
                                     set: { value in model.updateAppearance { $0.collapsedMaskOpacity = value } }
                                 ),
-                                in: 0.2...1.0
+                                in: 0.5...1.0
                             )
                         }
 
@@ -405,6 +410,20 @@ private struct AppearanceSettingsView: View {
                                     set: { value in model.updateAppearance { $0.animationDuration = value } }
                                 ),
                                 in: 0.05...0.6
+                            )
+                        }
+
+                        GlassSliderRow(
+                            title: L10n.string("field.bubble_offset"),
+                            detail: L10n.string("field.bubble_offset.detail"),
+                            valueText: String(format: "%.0f pt", model.settings.appearance.bubbleVerticalOffset)
+                        ) {
+                            Slider(
+                                value: Binding(
+                                    get: { model.settings.appearance.bubbleVerticalOffset },
+                                    set: { value in model.updateAppearance { $0.bubbleVerticalOffset = value } }
+                                ),
+                                in: 30...120
                             )
                         }
                     }
@@ -898,6 +917,32 @@ private struct StatusBadge: View {
                 Capsule(style: .continuous)
                     .fill(tint.opacity(0.18))
             )
+    }
+}
+
+private struct InfoTooltipButton: View {
+    let tooltip: String
+    @State private var isShowingPopover = false
+
+    var body: some View {
+        Button {
+            isShowingPopover.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary.opacity(0.7))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isShowingPopover = hovering
+        }
+        .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
+            Text(tooltip)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .padding(12)
+                .frame(maxWidth: 260)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
