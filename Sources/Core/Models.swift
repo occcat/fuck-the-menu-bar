@@ -243,6 +243,16 @@ public struct AppearanceSettings: Codable, Hashable, Sendable {
         self.stripPadding = stripPadding
         self.bubbleVerticalOffset = bubbleVerticalOffset
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        itemSpacing = try container.decodeIfPresent(Double.self, forKey: .itemSpacing) ?? 8
+        showLabels = try container.decodeIfPresent(Bool.self, forKey: .showLabels) ?? false
+        collapsedMaskOpacity = try container.decodeIfPresent(Double.self, forKey: .collapsedMaskOpacity) ?? 1.0
+        animationDuration = try container.decodeIfPresent(Double.self, forKey: .animationDuration) ?? 0.18
+        stripPadding = try container.decodeIfPresent(Double.self, forKey: .stripPadding) ?? 10
+        bubbleVerticalOffset = try container.decodeIfPresent(Double.self, forKey: .bubbleVerticalOffset) ?? 58
+    }
 }
 
 public struct AppSettings: Codable, Hashable, Sendable {
