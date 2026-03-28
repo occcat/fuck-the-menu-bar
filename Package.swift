@@ -77,6 +77,10 @@ let package = Package(
             dependencies: ["Core", "LayoutEngine"]
         ),
         .testTarget(
+            name: "DiscoveryTests",
+            dependencies: ["Core", "Discovery"]
+        ),
+        .testTarget(
             name: "PersistenceTests",
             dependencies: ["Core", "Persistence"]
         ),

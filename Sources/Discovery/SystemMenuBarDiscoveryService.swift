@@ -11,6 +11,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
 
     private var timer: Timer?
     private var automaticScanningPaused = false
+    private var backgroundSnapshot: [MenuBarItemDescriptor] = []
 
     public init() {}
 
@@ -25,6 +26,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
             timer?.invalidate()
             timer = nil
         } else {
+            rescan()
             scheduleTimerIfNeeded()
         }
     }
@@ -47,9 +49,35 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         let axItems = Self.scanAccessibilityItems()
         let windowItems = Self.scanWindowServerCandidates()
         let merged = Self.merge(accessibilityItems: axItems, windowItems: windowItems)
-        guard merged != items else { return }
-        items = merged
-        onItemsDidChange?(merged)
+        let resolution = Self.resolvePresentationItems(
+            mergedItems: merged,
+            backgroundSnapshot: backgroundSnapshot,
+            appIsActive: NSApplication.shared.isActive,
+            scanningPaused: automaticScanningPaused
+        )
+        backgroundSnapshot = resolution.updatedBackgroundSnapshot
+
+        guard let nextItems = resolution.itemsToPublish, nextItems != items else { return }
+        items = nextItems
+        onItemsDidChange?(nextItems)
+    }
+
+    nonisolated static func resolvePresentationItems(
+        mergedItems: [MenuBarItemDescriptor],
+        backgroundSnapshot: [MenuBarItemDescriptor],
+        appIsActive: Bool,
+        scanningPaused: Bool
+    ) -> (itemsToPublish: [MenuBarItemDescriptor]?, updatedBackgroundSnapshot: [MenuBarItemDescriptor]) {
+        let canPublishFreshResults = !appIsActive && !scanningPaused
+        if canPublishFreshResults {
+            return (mergedItems, mergedItems)
+        }
+
+        guard !backgroundSnapshot.isEmpty else {
+            return (nil, backgroundSnapshot)
+        }
+
+        return (backgroundSnapshot, backgroundSnapshot)
     }
 
     private static func merge(

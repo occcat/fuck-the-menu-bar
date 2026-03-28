@@ -16,8 +16,8 @@
           ┌─────────────────────────────────────────┐
           │              Discovery                  │
           │  SystemMenuBarDiscoveryService           │
-          │  (scan every 5 s, pause on active,       │
-          │   merge dual-channel)                     │
+          │  (scan every 5 s, cache background       │
+          │   snapshots, merge dual-channel)         │
           └─────────────────┬───────────────────────┘
                             │ [MenuBarItemDescriptor]
                             ▼
@@ -195,7 +195,7 @@ Foundation types shared by every module. Zero dependencies.
 
 ### Discovery
 
-Dual-channel menu bar scanner running on a 5-second `Timer`. Automatic scanning pauses while the application is active (foreground) and resumes when it resigns active, reducing unnecessary rescans during user interaction.
+Dual-channel menu bar scanner running on a 5-second `Timer`. Fresh scan results are only published while the application is in the background. When the app is active, the settings UI keeps showing the last background snapshot instead of replacing it with foreground-biased results. Manual refresh from settings performs a controlled background scan by briefly hiding the app, then reopening settings with the refreshed snapshot.
 
 - **AX channel**: Iterates all running applications via `NSWorkspace.shared.runningApplications`, creates `AXUIElementCreateApplication`, reads `AXExtrasMenuBar` and `AXMenuBar`, recursively walks children (depth 2), filters by `isLikelyMenuBarItem(bounds:)` (top-of-screen heuristic +-4 to 40 pt).
 - **Window Server channel**: `CGWindowListCopyWindowInfo` with on-screen-only filter, width 10..180 pt guard.
@@ -298,7 +298,7 @@ Standalone executable (`swift run FixtureMenuExtras`) that injects 4-5 fake `NSS
 | `AppModel`, all service types | `@MainActor` |
 | `AXElementCache` | `nonisolated(unsafe) static let shared` — thread-safe via `NSLock` |
 | `LocalizationController` | `nonisolated(unsafe) static let shared` — reads on main, apply on main |
-| Discovery timer | `Timer.scheduledTimer` on main run loop (5 s interval), rescans dispatch back to `@MainActor`; paused while app is active |
+| Discovery timer | `Timer.scheduledTimer` on main run loop (5 s interval), rescans dispatch back to `@MainActor`; fresh results are published only while app is inactive, with a cached background snapshot shown while active |
 | Hotkey handler | Carbon event handler calls closure on main thread |
 | Model types (`AppSettings`, `MenuBarItemDescriptor`, etc.) | `Sendable` value types |
 

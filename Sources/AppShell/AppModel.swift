@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var discoveredItems: [MenuBarItemDescriptor] = []
     @Published private(set) var managedItems: [ManagedMenuBarItem] = []
     @Published private(set) var permissionsSnapshot = PermissionSnapshot()
+    @Published private(set) var isRescanning = false
     @Published var settings: AppSettings
     @Published var revealState: RevealState = .collapsed
     @Published var searchText = ""
@@ -35,6 +36,7 @@ final class AppModel: ObservableObject {
     private let hotkeyMonitor: GlobalHotkeyMonitor
 
     private var statusAnchorFrame: CGRect?
+    private var pendingForegroundRescanTab: SettingsTab?
 
     init(
         store: FileSettingsStore = .init(),
@@ -128,11 +130,33 @@ final class AppModel: ObservableObject {
 
     func rescan() {
         refreshPermissions()
+        guard !isRescanning else { return }
+
+        if NSApplication.shared.isActive {
+            isRescanning = true
+            pendingForegroundRescanTab = selectedTab
+
+            guard NSRunningApplication.current.hide() else {
+                pendingForegroundRescanTab = nil
+                isRescanning = false
+                discovery.rescan()
+                return
+            }
+            return
+        }
+
         discovery.rescan()
     }
 
     func setAutomaticScanningPaused(_ paused: Bool) {
         discovery.setAutomaticScanningPaused(paused)
+
+        guard !paused, let tab = pendingForegroundRescanTab else { return }
+        pendingForegroundRescanTab = nil
+        isRescanning = false
+        DispatchQueue.main.async { [weak self] in
+            self?.openSettings(tab: tab)
+        }
     }
 
     func toggleReveal() {

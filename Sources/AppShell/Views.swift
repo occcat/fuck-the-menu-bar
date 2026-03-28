@@ -176,6 +176,12 @@ private struct ItemsSettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
+                    .disabled(model.isRescanning)
+
+                    if model.isRescanning {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
 
                 HStack(spacing: 10) {
