@@ -296,9 +296,7 @@ final class AppModel: ObservableObject {
             }
         }
 
-        // Real clicks post CGEvents at screen coordinates — hide overlay first to avoid interception
-        overlayController.hide()
-        revealState = .collapsed
+        collapseReveal()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.interactionRouter.activate(
@@ -306,9 +304,6 @@ final class AppModel: ObservableObject {
                 interactionMode: item.rule.interactionMode,
                 button: button
             )
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.updateOverlay()
-            }
         }
     }
 
@@ -329,6 +324,19 @@ final class AppModel: ObservableObject {
         managedItems = deduplicateManagedItems(rawManagedItems)
         syncHiddenOrder()
         updateOverlay()
+
+        var updatedMetadata = settings.appMetadata
+        for item in managedItems {
+            let entry = AppMetadataEntry(
+                displayName: item.displayName,
+                bundleID: item.descriptor.bundleID
+            )
+            updatedMetadata[item.id] = entry
+        }
+        if updatedMetadata != settings.appMetadata {
+            settings.appMetadata = updatedMetadata
+            persist()
+        }
     }
 
     private func deduplicateManagedItems(_ items: [ManagedMenuBarItem]) -> [ManagedMenuBarItem] {

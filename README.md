@@ -37,6 +37,7 @@ macOS 菜单栏挤满图标，你受够了。
 - **左键 + 右键** — 收纳栏中的项目同时支持左键激活和右键上下文菜单
 - **应用图标** — 自动从 `.app` bundle 解析应用图标（CFBundleIconFile / CFBundleIconName），收纳栏显示真实应用图标
 - **全局快捷键** — 默认 `⌘⌥M`（默认关闭，需在设置中手动启用），可自定义按键和修饰键组合
+- **拖拽排序** — 设置中的收纳栏排序支持直接拖拽调整顺序，实时更新序号
 - **液态玻璃 UI** — 磨砂遮罩 + 纵向气泡卡片收纳栏（支持自定义气泡偏移距离）+ 弹性动效，致敬 Apple 最新设计语言
 - **交互提示** — AX Press / Real Click 徽章旁带有信息气泡，hover 或点击即可查看交互方式的详细说明
 - **点击外部自动收起** — 展开收纳栏后，点击气泡外部任意区域自动折叠
@@ -132,6 +133,12 @@ Tests/
     }
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
+  "appMetadata": {                         // 自动维护的应用元数据（去重显示名与 bundle ID）
+    "com.apple.controlcenter#wifi": {
+      "displayName": "Wi-Fi",
+      "bundleID": "com.apple.controlcenter"
+    }
+  },
   "appearance": {
     "collapsedMaskOpacity": 1.0,
     "animationDuration": 0.18,
@@ -155,7 +162,7 @@ Tests/
 3. **去重** — `AppModel` 按应用名称对发现结果进行智能去重，保留交互能力最强的条目（优先保留有用户自定义规则、支持 AXPress、来自 Accessibility 通道的项目）
 4. **布局** — `DefaultMenuBarLayoutEngine` 根据可见性规则将项目分为三组：始终可见、遮罩覆盖、收纳栏展示
 5. **渲染** — `MenuBarOverlayController` 用一个 borderless `NSPanel` 浮在菜单栏之上，对被隐藏的图标叠加磨砂遮罩，展开时渲染纵向气泡卡片；点击卡片外部区域自动折叠
-6. **交互** — `DefaultMenuBarInteractionRouter` 对支持 AXPress 的项目，先尝试通过 Accessibility 直接触发点击（无需隐藏 overlay），成功则立即折叠；不支持或失败时，先隐藏 overlay 再延迟合成 CGEvent 鼠标事件，点击后自动刷新状态；收纳栏同时支持左键激活和右键上下文菜单
+6. **交互** — `DefaultMenuBarInteractionRouter` 对支持 AXPress 的项目，先尝试通过 Accessibility 直接触发点击（无需隐藏 overlay），成功则调用 `collapseReveal()` 折叠；不支持或失败时，先折叠 overlay 再延迟合成 CGEvent 鼠标事件，交互前保存光标位置、交互后自动恢复，避免鼠标跳动；收纳栏同时支持左键激活和右键上下文菜单
 
 ## 贡献
 

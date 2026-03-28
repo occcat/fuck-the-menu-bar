@@ -21,7 +21,7 @@ final class SettingsWindowController {
             window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
-            window.isMovableByWindowBackground = true
+            window.isMovableByWindowBackground = false
             window.toolbarStyle = .unifiedCompact
             window.backgroundColor = .clear
             window.isOpaque = false

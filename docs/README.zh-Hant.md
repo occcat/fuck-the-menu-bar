@@ -37,6 +37,7 @@ macOS 選單列擠滿圖示，你受夠了。
 - **左鍵 + 右鍵** — 收納列中的項目同時支援左鍵啟動和右鍵上下文選單
 - **應用程式圖示** — 自動從 `.app` bundle 解析應用程式圖示（CFBundleIconFile / CFBundleIconName），收納列顯示真實應用程式圖示
 - **全域快捷鍵** — 預設 `⌘⌥M`（預設關閉，需在設定中手動啟用），可自訂按鍵和修飾鍵組合
+- **拖曳排序** — 設定中的收納列排序支援直接拖曳調整順序，即時更新序號
 - **液態玻璃 UI** — 磨砂遮罩 + 縱向氣泡卡片收納列（支援自訂氣泡偏移距離）+ 彈性動效，致敬 Apple 最新設計語言
 - **互動提示** — AX Press / Real Click 徽章旁帶有資訊氣泡，hover 或點擊即可查看互動方式的詳細說明
 - **點擊外部自動收起** — 展開收納列後，點擊氣泡外部任意區域自動摺疊
@@ -132,6 +133,12 @@ Tests/
     }
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
+  "appMetadata": {                         // 自動維護的應用程式中繼資料（去重顯示名稱與 bundle ID）
+    "com.apple.controlcenter#wifi": {
+      "displayName": "Wi-Fi",
+      "bundleID": "com.apple.controlcenter"
+    }
+  },
   "appearance": {
     "collapsedMaskOpacity": 1.0,
     "animationDuration": 0.18,
@@ -155,7 +162,7 @@ Tests/
 3. **去重** — `AppModel` 按應用程式名稱對發現結果進行智慧去重，保留互動能力最強的條目（優先保留有使用者自訂規則、支援 AXPress、來自 Accessibility 通道的項目）
 4. **佈局** — `DefaultMenuBarLayoutEngine` 根據可見性規則將項目分為三組：始終可見、遮罩覆蓋、收納列展示
 5. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加磨砂遮罩，展開時渲染縱向氣泡卡片；點擊卡片外部區域自動摺疊
-6. **互動** — `DefaultMenuBarInteractionRouter` 對支援 AXPress 的項目，先嘗試透過 Accessibility 直接觸發點擊（無需隱藏 overlay），成功則立即摺疊；不支援或失敗時，先隱藏 overlay 再延遲合成 CGEvent 滑鼠事件，點擊後自動重新整理狀態；收納列同時支援左鍵啟動和右鍵上下文選單
+6. **互動** — `DefaultMenuBarInteractionRouter` 對支援 AXPress 的項目，先嘗試透過 Accessibility 直接觸發點擊（無需隱藏 overlay），成功則呼叫 `collapseReveal()` 摺疊；不支援或失敗時，先摺疊 overlay 再延遲合成 CGEvent 滑鼠事件，互動前儲存游標位置、互動後自動恢復，避免滑鼠跳動；收納列同時支援左鍵啟動和右鍵上下文選單
 
 ## 貢獻
 

@@ -40,6 +40,7 @@ public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProt
     }
 
     private func performRealClick(for item: MenuBarItemDescriptor, button: MenuBarClickButton) {
+        let originalPosition = NSEvent.mouseLocation
         let center = CGPoint(x: item.bounds.midX, y: item.bounds.midY)
         let mouseTypeDown: CGEventType = button == .right ? .rightMouseDown : .leftMouseDown
         let mouseTypeUp: CGEventType = button == .right ? .rightMouseUp : .leftMouseUp
@@ -52,6 +53,11 @@ public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProt
         }
         mouseDown.post(tap: .cghidEventTap)
         mouseUp.post(tap: .cghidEventTap)
+
+        if let mainScreen = NSScreen.main {
+            let cgY = mainScreen.frame.height - originalPosition.y
+            CGWarpMouseCursorPosition(CGPoint(x: originalPosition.x, y: cgY))
+        }
     }
 
     private func findMatchingElement(for item: MenuBarItemDescriptor) -> AXUIElement? {

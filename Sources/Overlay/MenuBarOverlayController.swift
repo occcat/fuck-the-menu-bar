@@ -9,7 +9,6 @@ public final class MenuBarOverlayController {
     fileprivate static let collapsedPanelHeight: CGFloat = 44
     fileprivate static let expandedPanelPadding: CGFloat = 14
     fileprivate static let expandedBubbleTopInset: CGFloat = 52
-    fileprivate static let defaultBubbleAnchorGap: CGFloat = 58
     fileprivate static let expandedBubbleBottomInset: CGFloat = 18
     fileprivate static let bubbleWidth: CGFloat = 260
     fileprivate static let bubbleRowHeight: CGFloat = 48
@@ -163,14 +162,12 @@ public final class MenuBarOverlayController {
             CGFloat(rows) * Self.bubbleRowHeight +
             CGFloat(max(rows - 1, 0)) * Self.bubbleSpacing +
             Self.expandedPanelPadding * 2
+        let minimumMenuBarClearance = min(Self.expandedBubbleTopInset, 24)
         let topClearance: CGFloat
         if let anchorFrame {
-            topClearance = max(
-                screenFrame.maxY - anchorFrame.minY + bubbleAnchorGap,
-                Self.expandedBubbleTopInset
-            )
+            topClearance = screenFrame.maxY - anchorFrame.minY + bubbleAnchorGap
         } else {
-            topClearance = Self.expandedBubbleTopInset
+            topClearance = max(bubbleAnchorGap, minimumMenuBarClearance)
         }
         return max(
             Self.collapsedPanelHeight,
@@ -198,9 +195,17 @@ public final class MenuBarOverlayController {
         let minX = windowFrame.minX + Self.expandedPanelPadding
         let anchoredMidX = anchorFrame?.midX ?? windowFrame.midX
         let originX = min(max(anchoredMidX - (Self.bubbleWidth / 2), minX), maxX)
-        let preferredBubbleMaxY = (anchorFrame?.minY ?? windowFrame.maxY) - bubbleAnchorGap
+        let minimumMenuBarClearance = min(Self.expandedBubbleTopInset, 24)
+        let topClearance: CGFloat
+        if let anchorFrame {
+            topClearance = windowFrame.maxY - anchorFrame.minY + bubbleAnchorGap
+        } else {
+            topClearance = max(bubbleAnchorGap, minimumMenuBarClearance)
+        }
+        let preferredBubbleMaxY = windowFrame.maxY - topClearance
         let minimumBubbleMaxY = windowFrame.minY + bubbleHeight + Self.expandedBubbleBottomInset
-        let bubbleMaxY = max(preferredBubbleMaxY, minimumBubbleMaxY)
+        let maximumBubbleMaxY = windowFrame.maxY - minimumMenuBarClearance
+        let bubbleMaxY = min(max(preferredBubbleMaxY, minimumBubbleMaxY), maximumBubbleMaxY)
         let originY = bubbleMaxY - bubbleHeight
 
         return CGRect(x: originX, y: originY, width: Self.bubbleWidth, height: bubbleHeight)

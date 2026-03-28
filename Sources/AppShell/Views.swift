@@ -4,6 +4,7 @@ import Core
 import Localization
 import SharedUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsRootView: View {
     @ObservedObject var model: AppModel
@@ -160,6 +161,13 @@ private struct SettingsSidebar: View {
 
 private struct ItemsSettingsView: View {
     @ObservedObject var model: AppModel
+    @State private var draggingItemID: String?
+    @State private var shelfOrder: [ManagedMenuBarItem]
+
+    init(model: AppModel) {
+        self.model = model
+        _shelfOrder = State(initialValue: model.managedItems.filter { $0.rule.kind == .hiddenInBar })
+    }
 
     private var hiddenItems: [ManagedMenuBarItem] {
         model.managedItems.filter { $0.rule.kind == .hiddenInBar }
@@ -203,7 +211,7 @@ private struct ItemsSettingsView: View {
                         EmptyStateRow(message: L10n.string("empty.shelf_order"))
                     } else {
                         VStack(spacing: 10) {
-                            ForEach(Array(hiddenItems.enumerated()), id: \.element.id) { index, item in
+                            ForEach(Array(shelfOrder.enumerated()), id: \.element.id) { index, item in
                                 HStack(spacing: 14) {
                                     Text(String(format: "%02d", index + 1))
                                         .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -222,15 +230,26 @@ private struct ItemsSettingsView: View {
 
                                     Spacer()
 
-                                    orderButton(systemName: "arrow.up", disabled: index == 0) {
-                                        model.moveShelfItem(item.id, direction: .up)
-                                    }
-                                    orderButton(systemName: "arrow.down", disabled: index == hiddenItems.count - 1) {
-                                        model.moveShelfItem(item.id, direction: .down)
-                                    }
+                                    Image(systemName: "line.3.horizontal")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 30, height: 30)
                                 }
                                 .padding(14)
                                 .softRowBackground()
+                                .onDrag {
+                                    draggingItemID = item.id
+                                    return NSItemProvider(object: item.id as NSString)
+                                }
+                                .onDrop(
+                                    of: [.text],
+                                    delegate: ShelfDropDelegate(
+                                        item: item,
+                                        shelfOrder: $shelfOrder,
+                                        draggingItemID: $draggingItemID,
+                                        model: model,
+                                        hiddenItems: hiddenItems
+                                    )
+                                )
                             }
                         }
                     }
@@ -239,6 +258,11 @@ private struct ItemsSettingsView: View {
             .padding(.bottom, 6)
         }
         .scrollIndicators(.hidden)
+        .onChange(of: hiddenItems) { _, newValue in
+            if draggingItemID == nil {
+                shelfOrder = newValue
+            }
+        }
     }
 
     private var searchField: some View {
@@ -252,19 +276,57 @@ private struct ItemsSettingsView: View {
         .padding(.vertical, 14)
         .softRowBackground(cornerRadius: 22)
     }
+}
 
-    private func orderButton(systemName: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .frame(width: 30, height: 30)
+private struct ShelfDropDelegate: DropDelegate {
+    let item: ManagedMenuBarItem
+    @Binding var shelfOrder: [ManagedMenuBarItem]
+    @Binding var draggingItemID: String?
+    let model: AppModel
+    let hiddenItems: [ManagedMenuBarItem]
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingItemID,
+              draggingItemID != item.id,
+              let fromIndex = shelfOrder.firstIndex(where: { $0.id == draggingItemID }),
+              let toIndex = shelfOrder.firstIndex(where: { $0.id == item.id }),
+              fromIndex != toIndex
+        else {
+            return
         }
-        .buttonStyle(.plain)
-        .background(
-            Circle()
-                .fill(.white.opacity(disabled ? 0.04 : 0.1))
-        )
-        .foregroundStyle(disabled ? Color.secondary.opacity(0.35) : Color.primary)
-        .disabled(disabled)
+
+        withAnimation {
+            shelfOrder.move(
+                fromOffsets: IndexSet(integer: fromIndex),
+                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+            )
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingItemID = nil }
+
+        guard let draggingItemID,
+              let sourceIndex = hiddenItems.firstIndex(where: { $0.id == draggingItemID }),
+              let destinationIndexInOrder = shelfOrder.firstIndex(where: { $0.id == draggingItemID })
+        else {
+            return false
+        }
+
+        guard sourceIndex != destinationIndexInOrder else {
+            return true
+        }
+
+        let destination = destinationIndexInOrder > sourceIndex
+            ? destinationIndexInOrder + 1
+            : destinationIndexInOrder
+
+        model.moveShelfItems(from: IndexSet(integer: sourceIndex), to: destination)
+        return true
     }
 }
 

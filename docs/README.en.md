@@ -37,6 +37,7 @@ Your macOS menu bar is overflowing with icons. You're done with it.
 - **Left + right click** — Shelf items support both left-click activation and right-click context menus
 - **App icons** — Automatically resolves app icons from `.app` bundles (CFBundleIconFile / CFBundleIconName), showing real app icons in the shelf
 - **Global hotkey** — Default `⌘⌥M` (disabled by default; enable it in Settings), fully customizable key and modifier combination
+- **Drag-and-drop reorder** — Shelf item order in Settings can be rearranged via drag-and-drop, with live sequence number updates
 - **Liquid glass UI** — Frosted masks + vertical bubble card shelf (with configurable bubble offset) + spring animations, inspired by Apple's latest design language
 - **Interaction tooltips** — An info bubble next to the AX Press / Real Click badge; hover or click to see a detailed explanation of the interaction method
 - **Auto-collapse on outside click** — Click anywhere outside the bubble to automatically collapse the shelf
@@ -132,6 +133,12 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
     }
   },
   "hiddenOrder": ["com.apple.controlcenter#wifi"],
+  "appMetadata": {                            // auto-maintained app metadata (deduped display names & bundle IDs)
+    "com.apple.controlcenter#wifi": {
+      "displayName": "Wi-Fi",
+      "bundleID": "com.apple.controlcenter"
+    }
+  },
   "appearance": {
     "collapsedMaskOpacity": 1.0,
     "animationDuration": 0.18,
@@ -155,7 +162,7 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
 3. **Deduplication** — `AppModel` intelligently deduplicates discovered items by app name, keeping the entry with the strongest interaction capabilities (prioritizing items with user-defined rules, AXPress support, and Accessibility source)
 4. **Layout** — `DefaultMenuBarLayoutEngine` partitions items into three buckets: always-visible, masked, and shelf
 5. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying frosted masks on hidden icons and rendering a vertical bubble card when expanded; clicking outside the bubble auto-collapses it
-6. **Interaction** — `DefaultMenuBarInteractionRouter` first attempts an Accessibility press (AXPress) for supported items without hiding the overlay — on success, collapses immediately; on failure, hides the overlay first, then synthesizes a CGEvent mouse click after a short delay and auto-refreshes state; the shelf supports both left-click activation and right-click context menus
+6. **Interaction** — `DefaultMenuBarInteractionRouter` first attempts an Accessibility press (AXPress) for supported items without hiding the overlay — on success, collapses via `collapseReveal()`; on failure, collapses the overlay first, then synthesizes a CGEvent mouse click after a short delay. Cursor position is saved before and restored after CGEvent synthesis to prevent visible cursor jumps; the shelf supports both left-click activation and right-click context menus
 
 ## Contributing
 

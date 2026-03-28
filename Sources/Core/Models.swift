@@ -255,9 +255,20 @@ public struct AppearanceSettings: Codable, Hashable, Sendable {
     }
 }
 
+public struct AppMetadataEntry: Codable, Hashable, Sendable {
+    public var displayName: String
+    public var bundleID: String
+
+    public init(displayName: String, bundleID: String) {
+        self.displayName = displayName
+        self.bundleID = bundleID
+    }
+}
+
 public struct AppSettings: Codable, Hashable, Sendable {
     public var schemaVersion: Int
     public var rules: [String: VisibilityRule]
+    public var appMetadata: [String: AppMetadataEntry]
     public var hiddenOrder: [String]
     public var appearance: AppearanceSettings
     public var hotkey: HotkeyConfiguration
@@ -268,6 +279,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public init(
         schemaVersion: Int = 1,
         rules: [String: VisibilityRule] = [:],
+        appMetadata: [String: AppMetadataEntry] = [:],
         hiddenOrder: [String] = [],
         appearance: AppearanceSettings = .init(),
         hotkey: HotkeyConfiguration = .init(),
@@ -277,12 +289,38 @@ public struct AppSettings: Codable, Hashable, Sendable {
     ) {
         self.schemaVersion = schemaVersion
         self.rules = rules
+        self.appMetadata = appMetadata
         self.hiddenOrder = hiddenOrder
         self.appearance = appearance
         self.hotkey = hotkey
         self.preferredLanguage = preferredLanguage
         self.launchAtLogin = launchAtLogin
         self.completedOnboarding = completedOnboarding
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case rules
+        case appMetadata
+        case hiddenOrder
+        case appearance
+        case hotkey
+        case preferredLanguage
+        case launchAtLogin
+        case completedOnboarding
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        rules = try container.decode([String: VisibilityRule].self, forKey: .rules)
+        appMetadata = try container.decodeIfPresent([String: AppMetadataEntry].self, forKey: .appMetadata) ?? [:]
+        hiddenOrder = try container.decode([String].self, forKey: .hiddenOrder)
+        appearance = try container.decode(AppearanceSettings.self, forKey: .appearance)
+        hotkey = try container.decode(HotkeyConfiguration.self, forKey: .hotkey)
+        preferredLanguage = try container.decode(AppLanguage.self, forKey: .preferredLanguage)
+        launchAtLogin = try container.decode(Bool.self, forKey: .launchAtLogin)
+        completedOnboarding = try container.decode(Bool.self, forKey: .completedOnboarding)
     }
 }
 
