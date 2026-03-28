@@ -131,31 +131,53 @@ final class AppModel: ObservableObject {
     func rescan() {
         refreshPermissions()
         guard !isRescanning else { return }
+        isRescanning = true
 
         if NSApplication.shared.isActive {
-            isRescanning = true
             pendingForegroundRescanTab = selectedTab
 
             guard NSRunningApplication.current.hide() else {
                 pendingForegroundRescanTab = nil
-                isRescanning = false
-                discovery.rescan()
+                performControlledRescan(reopenSettingsTab: nil)
                 return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, self.pendingForegroundRescanTab != nil else { return }
+                let tab = self.pendingForegroundRescanTab
+                self.pendingForegroundRescanTab = nil
+                self.performControlledRescan(reopenSettingsTab: tab)
             }
             return
         }
 
-        discovery.rescan()
+        performControlledRescan(reopenSettingsTab: nil)
     }
 
     func setAutomaticScanningPaused(_ paused: Bool) {
-        discovery.setAutomaticScanningPaused(paused)
+        if paused {
+            discovery.setAutomaticScanningPaused(true)
+            return
+        }
 
-        guard !paused, let tab = pendingForegroundRescanTab else { return }
-        pendingForegroundRescanTab = nil
-        isRescanning = false
-        DispatchQueue.main.async { [weak self] in
-            self?.openSettings(tab: tab)
+        if let tab = pendingForegroundRescanTab {
+            pendingForegroundRescanTab = nil
+            discovery.setAutomaticScanningPaused(false, refreshOnResume: false)
+            performControlledRescan(reopenSettingsTab: tab)
+            return
+        }
+
+        discovery.setAutomaticScanningPaused(false)
+    }
+
+    private func performControlledRescan(reopenSettingsTab tab: SettingsTab?) {
+        discovery.rescan(forcePublishingResults: true) { [weak self] in
+            guard let self else { return }
+            self.isRescanning = false
+            guard let tab else { return }
+            DispatchQueue.main.async {
+                self.openSettings(tab: tab)
+            }
         }
     }
 

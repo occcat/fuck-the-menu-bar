@@ -6,12 +6,28 @@ import Localization
 
 @MainActor
 public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtocol {
+    private struct RunningApplicationSnapshot: Sendable {
+        let processIdentifier: pid_t
+        let bundleIdentifier: String?
+        let localizedName: String?
+    }
+
+    private struct ScanEnvironment: Sendable {
+        let runningApplications: [RunningApplicationSnapshot]
+        let screenFrames: [CGRect]
+        let currentBundleIdentifier: String?
+        let untitledFallback: String
+        let unknownFallback: String
+    }
+
     public private(set) var items: [MenuBarItemDescriptor] = []
     public var onItemsDidChange: (([MenuBarItemDescriptor]) -> Void)?
 
     private var timer: Timer?
     private var automaticScanningPaused = false
     private var backgroundSnapshot: [MenuBarItemDescriptor] = []
+    private var scanGeneration: UInt64 = 0
+    private var isScanInFlight = false
 
     public init() {}
 
@@ -20,13 +36,15 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         scheduleTimerIfNeeded()
     }
 
-    public func setAutomaticScanningPaused(_ paused: Bool) {
+    public func setAutomaticScanningPaused(_ paused: Bool, refreshOnResume: Bool = true) {
         automaticScanningPaused = paused
         if paused {
             timer?.invalidate()
             timer = nil
         } else {
-            rescan()
+            if refreshOnResume {
+                rescan()
+            }
             scheduleTimerIfNeeded()
         }
     }
@@ -43,23 +61,56 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
     public func stop() {
         timer?.invalidate()
         timer = nil
+        scanGeneration &+= 1
+        isScanInFlight = false
+    }
+
+    public func rescan(forcePublishingResults: Bool = false, completion: (@MainActor @Sendable () -> Void)? = nil) {
+        if isScanInFlight && !forcePublishingResults {
+            completion?()
+            return
+        }
+
+        let environment = makeScanEnvironment()
+        let snapshotAtStart = backgroundSnapshot
+        scanGeneration &+= 1
+        let scanID = scanGeneration
+        isScanInFlight = true
+
+        DispatchQueue.global(qos: .utility).async { [environment] in
+            let axItems = Self.scanAccessibilityItems(environment: environment)
+            let windowItems = Self.scanWindowServerCandidates(environment: environment)
+            let merged = Self.merge(accessibilityItems: axItems, windowItems: windowItems)
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.scanGeneration == scanID else { return }
+                self.isScanInFlight = false
+
+                let resolution: (itemsToPublish: [MenuBarItemDescriptor]?, updatedBackgroundSnapshot: [MenuBarItemDescriptor])
+                if forcePublishingResults {
+                    resolution = (merged, merged)
+                } else {
+                    resolution = Self.resolvePresentationItems(
+                        mergedItems: merged,
+                        backgroundSnapshot: snapshotAtStart.isEmpty ? self.backgroundSnapshot : snapshotAtStart,
+                        appIsActive: NSApplication.shared.isActive,
+                        scanningPaused: self.automaticScanningPaused
+                    )
+                }
+
+                self.backgroundSnapshot = resolution.updatedBackgroundSnapshot
+                if let nextItems = resolution.itemsToPublish, nextItems != self.items {
+                    self.items = nextItems
+                    self.onItemsDidChange?(nextItems)
+                }
+                completion?()
+            }
+        }
     }
 
     public func rescan() {
-        let axItems = Self.scanAccessibilityItems()
-        let windowItems = Self.scanWindowServerCandidates()
-        let merged = Self.merge(accessibilityItems: axItems, windowItems: windowItems)
-        let resolution = Self.resolvePresentationItems(
-            mergedItems: merged,
-            backgroundSnapshot: backgroundSnapshot,
-            appIsActive: NSApplication.shared.isActive,
-            scanningPaused: automaticScanningPaused
-        )
-        backgroundSnapshot = resolution.updatedBackgroundSnapshot
-
-        guard let nextItems = resolution.itemsToPublish, nextItems != items else { return }
-        items = nextItems
-        onItemsDidChange?(nextItems)
+        rescan(forcePublishingResults: false)
     }
 
     nonisolated static func resolvePresentationItems(
@@ -80,7 +131,25 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return (backgroundSnapshot, backgroundSnapshot)
     }
 
-    private static func merge(
+    private func makeScanEnvironment() -> ScanEnvironment {
+        ScanEnvironment(
+            runningApplications: NSWorkspace.shared.runningApplications
+                .filter { $0.processIdentifier > 0 }
+                .map {
+                    RunningApplicationSnapshot(
+                        processIdentifier: $0.processIdentifier,
+                        bundleIdentifier: $0.bundleIdentifier,
+                        localizedName: $0.localizedName
+                    )
+                },
+            screenFrames: NSScreen.screens.map(\.frame),
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            untitledFallback: L10n.string("fallback.untitled"),
+            unknownFallback: L10n.string("fallback.unknown")
+        )
+    }
+
+    private nonisolated static func merge(
         accessibilityItems: [MenuBarItemDescriptor],
         windowItems: [MenuBarItemDescriptor]
     ) -> [MenuBarItemDescriptor] {
@@ -103,7 +172,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         }
     }
 
-    private static func mergedDescriptor(
+    private nonisolated static func mergedDescriptor(
         preferred: MenuBarItemDescriptor,
         fallback: MenuBarItemDescriptor
     ) -> MenuBarItemDescriptor {
@@ -126,7 +195,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         )
     }
 
-    private static func scanAccessibilityItems() -> [MenuBarItemDescriptor] {
+    private nonisolated static func scanAccessibilityItems(environment: ScanEnvironment) -> [MenuBarItemDescriptor] {
         guard AXIsProcessTrusted() else {
             AXElementCache.shared.clear()
             return []
@@ -134,7 +203,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
 
         var descriptors: [MenuBarItemDescriptor] = []
         var cache: [String: AXUIElement] = [:]
-        for app in NSWorkspace.shared.runningApplications where app.processIdentifier > 0 {
+        for app in environment.runningApplications {
             let element = AXUIElementCreateApplication(app.processIdentifier)
             let bars = [attribute(element, name: "AXExtrasMenuBar"), attribute(element, name: kAXMenuBarAttribute as String)]
                 .compactMap { $0 }
@@ -143,13 +212,13 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
                 let children = recursiveChildren(of: bar, depth: 2)
                 for child in children {
                     guard let bounds = frame(for: child), bounds.width > 0, bounds.height > 0 else { continue }
-                    guard isLikelyMenuBarItem(bounds: bounds) else { continue }
+                    guard isLikelyMenuBarItem(bounds: bounds, screenFrames: environment.screenFrames) else { continue }
 
                     let title = stringAttribute(child, name: kAXTitleAttribute as String)
                         ?? stringAttribute(child, name: kAXDescriptionAttribute as String)
                         ?? app.localizedName
                         ?? app.bundleIdentifier
-                        ?? L10n.string("fallback.untitled")
+                        ?? environment.untitledFallback
                     let role = stringAttribute(child, name: kAXRoleAttribute as String)
                     let subrole = stringAttribute(child, name: kAXSubroleAttribute as String)
                     let identifier = stringAttribute(child, name: kAXIdentifierAttribute as String)
@@ -192,25 +261,32 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return descriptors
     }
 
-    private static func scanWindowServerCandidates() -> [MenuBarItemDescriptor] {
+    private nonisolated static func scanWindowServerCandidates(environment: ScanEnvironment) -> [MenuBarItemDescriptor] {
         guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
+
+        let runningAppIndex = Dictionary(
+            uniqueKeysWithValues: environment.runningApplications.map { ($0.processIdentifier, $0) }
+        )
 
         return infoList.compactMap { info in
             guard
                 let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                 let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                 let bounds = CGRect(dictionaryRepresentation: boundsDict),
-                isLikelyMenuBarItem(bounds: bounds),
+                isLikelyMenuBarItem(bounds: bounds, screenFrames: environment.screenFrames),
                 bounds.width > 10,
                 bounds.width < 180
             else {
                 return nil
             }
 
-            let ownerName = info[kCGWindowOwnerName as String] as? String ?? L10n.string("fallback.unknown")
-            let bundleID = NSRunningApplication(processIdentifier: ownerPID)?.bundleIdentifier ?? ownerName
+            let ownerName = info[kCGWindowOwnerName as String] as? String ?? environment.unknownFallback
+            let bundleID = runningAppIndex[ownerPID]?.bundleIdentifier ?? ownerName
+            guard bundleID != environment.currentBundleIdentifier else {
+                return nil
+            }
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ownerName
             let seed = ItemIdentitySeed(
                 bundleID: bundleID,
@@ -233,21 +309,21 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         }
     }
 
-    private static func isLikelyMenuBarItem(bounds: CGRect) -> Bool {
-        NSScreen.screens.contains { screen in
-            let topInset = screen.frame.maxY - bounds.maxY
-            return topInset >= -4 && topInset <= 40 && bounds.maxX <= screen.frame.maxX && bounds.minX >= screen.frame.minX
+    private nonisolated static func isLikelyMenuBarItem(bounds: CGRect, screenFrames: [CGRect]) -> Bool {
+        screenFrames.contains { screen in
+            let topInset = screen.maxY - bounds.maxY
+            return topInset >= -4 && topInset <= 40 && bounds.maxX <= screen.maxX && bounds.minX >= screen.minX
         }
     }
 
-    private static func attribute(_ element: AXUIElement, name: String) -> AXUIElement? {
+    private nonisolated static func attribute(_ element: AXUIElement, name: String) -> AXUIElement? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, name as CFString, &value)
         guard result == .success, let value else { return nil }
         return (value as! AXUIElement)
     }
 
-    private static func stringAttribute(_ element: AXUIElement, name: String) -> String? {
+    private nonisolated static func stringAttribute(_ element: AXUIElement, name: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -255,7 +331,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as? String
     }
 
-    private static func recursiveChildren(of element: AXUIElement, depth: Int) -> [AXUIElement] {
+    private nonisolated static func recursiveChildren(of element: AXUIElement, depth: Int) -> [AXUIElement] {
         guard depth >= 0 else { return [] }
         var children: [AXUIElement] = []
 
@@ -270,7 +346,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return children
     }
 
-    private static func arrayAttribute(_ element: AXUIElement, name: String) -> [AXUIElement]? {
+    private nonisolated static func arrayAttribute(_ element: AXUIElement, name: String) -> [AXUIElement]? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -278,7 +354,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as? [AXUIElement]
     }
 
-    private static func frame(for element: AXUIElement) -> CGRect? {
+    private nonisolated static func frame(for element: AXUIElement) -> CGRect? {
         guard
             let positionValue = valueAttribute(element, name: kAXPositionAttribute as String),
             let sizeValue = valueAttribute(element, name: kAXSizeAttribute as String)
@@ -300,7 +376,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return CGRect(origin: position, size: size)
     }
 
-    private static func valueAttribute(_ element: AXUIElement, name: String) -> AXValue? {
+    private nonisolated static func valueAttribute(_ element: AXUIElement, name: String) -> AXValue? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -308,7 +384,7 @@ public final class SystemMenuBarDiscoveryService: MenuBarDiscoveryServiceProtoco
         return value as! AXValue?
     }
 
-    private static func actionNames(for element: AXUIElement) -> [String] {
+    private nonisolated static func actionNames(for element: AXUIElement) -> [String] {
         var actions: CFArray?
         guard AXUIElementCopyActionNames(element, &actions) == .success else { return [] }
         return actions as? [String] ?? []
