@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import Localization
+import Symbols
 
 @MainActor
 final class StatusItemController: NSObject {
@@ -8,8 +9,12 @@ final class StatusItemController: NSObject {
     var onOpenSettings: (() -> Void)?
     var onQuit: (() -> Void)?
 
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    // The symbol is drawn by an embedded image view (not `button.image`) so that state changes
+    // can use an SF Symbols content transition. The button therefore needs a fixed length.
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let menu = NSMenu()
+    private let symbolView = StatusSymbolImageView()
+    private var displayedRevealState: RevealState?
 
     override init() {
         super.init()
@@ -24,15 +29,34 @@ final class StatusItemController: NSObject {
 
     func update(revealState: RevealState, hiddenCount: Int) {
         guard let button = statusItem.button else { return }
-        let imageName = revealState == .expanded ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
-        button.image = NSImage(systemSymbolName: imageName, accessibilityDescription: L10n.string("app.name"))
-        button.image?.isTemplate = true
+        setSymbol(for: revealState)
+        button.setAccessibilityLabel(L10n.string("app.name"))
         button.toolTip = hiddenCount > 0 ? L10n.format("status.tooltip.hidden_count", hiddenCount) : L10n.string("status.tooltip")
     }
 
     func reloadLocalization(revealState: RevealState, hiddenCount: Int) {
         configureMenu()
         update(revealState: revealState, hiddenCount: hiddenCount)
+    }
+
+    /// Swaps the symbol only when the reveal state actually changes (`update` is also called for
+    /// every item-list change). The first image and "Reduce Motion" use a plain swap.
+    private func setSymbol(for revealState: RevealState) {
+        guard revealState != displayedRevealState else { return }
+        let isInitial = displayedRevealState == nil
+        displayedRevealState = revealState
+
+        let name = revealState == .expanded ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
+        // Template image: the status bar tints it for the current menu bar appearance,
+        // including the transparent menu bar on macOS 26.
+        image.isTemplate = true
+
+        if isInitial || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            symbolView.image = image
+        } else {
+            symbolView.setSymbolImage(image, contentTransition: .replace.downUp, options: .default)
+        }
     }
 
     @objc private func handleButtonPress(_ sender: NSStatusBarButton) {
@@ -56,6 +80,17 @@ final class StatusItemController: NSObject {
         button.target = self
         button.action = #selector(handleButtonPress(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.image = nil
+
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.imageScaling = .scaleProportionallyDown
+        symbolView.setAccessibilityElement(false)
+        button.addSubview(symbolView)
+        NSLayoutConstraint.activate([
+            symbolView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            symbolView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        ])
+
         update(revealState: .collapsed, hiddenCount: 0)
     }
 
@@ -73,5 +108,12 @@ final class StatusItemController: NSObject {
 
     @objc private func quit() {
         onQuit?()
+    }
+}
+
+/// Lets clicks fall through to the status bar button underneath.
+private final class StatusSymbolImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }

@@ -133,13 +133,14 @@ final class AppModel: ObservableObject {
         isRescanning = true
 
         if NSApplication.shared.isActive {
+            // A scan taken while this app owns the menu bar is foreground-biased, so the scan
+            // still has to run while another app is frontmost. Instead of hiding the app (which
+            // made the settings window vanish and reappear), only yield activation: the window
+            // stays on screen and is re-activated by `performControlledRescan` when the scan ends.
+            // The resign-active callback (`setAutomaticScanningPaused(false)`) starts the scan;
+            // the timeout below covers the case where activation could not be handed over.
             pendingForegroundRescanTab = selectedTab
-
-            guard NSRunningApplication.current.hide() else {
-                pendingForegroundRescanTab = nil
-                performControlledRescan(reopenSettingsTab: nil)
-                return
-            }
+            NSApplication.shared.deactivate()
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                 guard let self, self.pendingForegroundRescanTab != nil else { return }
