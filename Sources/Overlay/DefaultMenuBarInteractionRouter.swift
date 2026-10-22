@@ -54,8 +54,10 @@ public final class DefaultMenuBarInteractionRouter: MenuBarInteractionRouterProt
         mouseDown.post(tap: .cghidEventTap)
         mouseUp.post(tap: .cghidEventTap)
 
-        if let mainScreen = NSScreen.main {
-            let cgY = mainScreen.frame.height - originalPosition.y
+        // CG global coordinates are top-left based on the *primary* display (screens[0]),
+        // not NSScreen.main (the key window's screen). Using .main breaks multi-display setups.
+        if let primaryScreen = NSScreen.screens.first {
+            let cgY = primaryScreen.frame.maxY - originalPosition.y
             CGWarpMouseCursorPosition(CGPoint(x: originalPosition.x, y: cgY))
         }
     }

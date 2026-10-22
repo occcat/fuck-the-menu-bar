@@ -12,13 +12,30 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Build & Test
+    name: Build & Test (macOS 15 · Xcode 16.3 · fallback glass)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+  build-and-test-tahoe:
+    name: Build & Test (macOS 26 · Xcode 26 · native Liquid Glass)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Build
         run: swift build

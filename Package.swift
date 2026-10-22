@@ -44,7 +44,7 @@ let package = Package(
         ),
         .target(
             name: "Overlay",
-            dependencies: ["Core", "LayoutEngine", "Localization"]
+            dependencies: ["Core", "LayoutEngine", "Localization", "SharedUI"]
         ),
         .target(
             name: "SharedUI",
@@ -83,6 +83,10 @@ let package = Package(
         .testTarget(
             name: "PersistenceTests",
             dependencies: ["Core", "Persistence"]
+        ),
+        .testTarget(
+            name: "OverlayTests",
+            dependencies: ["Overlay", "SharedUI"]
         ),
     ]
 )
