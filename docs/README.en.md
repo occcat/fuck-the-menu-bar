@@ -38,7 +38,8 @@ Your macOS menu bar is overflowing with icons. You're done with it.
 - **App icons** — Automatically resolves app icons from `.app` bundles (CFBundleIconFile / CFBundleIconName), showing real app icons in the shelf
 - **Global hotkey** — Default `⌘⌥M` (disabled by default; enable it in Settings), fully customizable key and modifier combination
 - **Drag-and-drop reorder** — Shelf item order in Settings can be rearranged via drag-and-drop, with changes instantly reflected in the bubble card display order
-- **Liquid glass UI** — Frosted masks + vertical bubble card shelf (with configurable bubble offset) + spring animations, inspired by Apple's latest design language
+- **Liquid glass UI** — Native Liquid Glass (`glassEffect`) on macOS 26, with an automatic Material fallback on macOS 14/15; capsule masks + vertical bubble card shelf (up to 5 rows, scrolls beyond that, configurable bubble offset) + spring animations that grow out of the status item; honors Reduce Motion and Reduce Transparency
+- **Native settings UI** — Settings use a system sidebar + grouped forms (Liquid Glass sidebar on macOS 26); the status item icon animates between expanded and collapsed with an SF Symbols transition
 - **Interaction tooltips** — An info bubble next to the AX Press / Real Click badge; hover or click to see a detailed explanation of the interaction method
 - **Auto-collapse on outside click** — Click anywhere outside the bubble to automatically collapse the shelf
 - **Multilingual** — Simplified Chinese, Traditional Chinese, English, Japanese — switch in-app instantly
@@ -100,19 +101,20 @@ Sources/
 ├── Core/                 # Models, protocols, AX cache, identity builder
 ├── Discovery/            # Accessibility + Window Server dual-channel scanning
 ├── LayoutEngine/         # Visible / masked / shelf tri-partition layout
-├── Overlay/              # Frosted mask window + shelf strip overlay + interaction router
+├── Overlay/              # Mask window + Liquid Glass shelf bubble + interaction router
 ├── Persistence/          # JSON config read/write + v0 migration
 ├── Permissions/          # AX / Screen Recording / login item coordination
 ├── Hotkey/               # Carbon EventHotKey global shortcut
 ├── Localization/         # L10n engine + .strings resource bundles
-├── SharedUI/             # Cross-module UI utilities (e.g., hotkey formatter)
-├── AppShell/             # App entry, AppDelegate, SwiftUI settings & onboarding
+├── SharedUI/             # Cross-module UI: Liquid Glass design system (LiquidGlass), hotkey formatter
+├── AppShell/             # App entry, AppDelegate, status item, SwiftUI settings (Settings/), onboarding (Onboarding/), shared components (Components/)
 └── FixtureMenuExtras/    # Dev-only fake menu bar icon injector
 
 Tests/
 ├── CoreTests/            # MenuBarIdentityBuilder stability tests
 ├── LayoutEngineTests/    # Layout engine partition tests
-└── PersistenceTests/     # Config serialization + legacy migration tests
+├── PersistenceTests/     # Config serialization + legacy migration tests
+└── OverlayTests/         # Shelf bubble geometry + motion token tests
 ```
 
 > For detailed architecture and dependency graphs, see [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -157,11 +159,11 @@ Default path: `~/.config/fuck-the-menu-bar/settings.json`
 
 ## How It Works
 
-1. **Discovery** — `SystemMenuBarDiscoveryService` rescans every 5 s, walking `AXExtrasMenuBar` / `AXMenuBar` of every running app via AX API, and supplementing with `CGWindowListCopyWindowInfo` for Window-Server-only items. Automatic scanning pauses while the app is in the foreground and resumes when it moves to the background
+1. **Discovery** — `SystemMenuBarDiscoveryService` rescans every 5 s, walking `AXExtrasMenuBar` / `AXMenuBar` of every running app via AX API, and supplementing with `CGWindowListCopyWindowInfo` for Window-Server-only items. Automatic scanning pauses while the app is in the foreground and resumes when it moves to the background. Clicking "Rescan" in Settings briefly yields the foreground (the settings window stays on screen) to run a controlled background scan, then returns to Settings
 2. **Identity** — `MenuBarIdentityBuilder` produces a stable ID for each icon: prefers AX Identifier, falls back to title, ultimately uses a geometry signature
 3. **Deduplication** — `AppModel` intelligently deduplicates discovered items by app name, keeping the entry with the strongest interaction capabilities (prioritizing items with user-defined rules, AXPress support, and Accessibility source)
 4. **Layout** — `DefaultMenuBarLayoutEngine` partitions items into three buckets: always-visible, masked, and shelf
-5. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying frosted masks on hidden icons and rendering a vertical bubble card when expanded; clicking outside the bubble auto-collapses it
+5. **Rendering** — `MenuBarOverlayController` floats a borderless `NSPanel` above the menu bar, overlaying capsule-shaped opaque masks (with a glass sheen) on hidden icons and growing a Liquid Glass vertical bubble card out of the status item when expanded; clicking outside the bubble auto-collapses it
 6. **Interaction** — `DefaultMenuBarInteractionRouter` first attempts an Accessibility press (AXPress) for supported items without hiding the overlay — on success, collapses via `collapseReveal()`; on failure, collapses the overlay first, then synthesizes a CGEvent mouse click after a short delay. Cursor position is saved before and restored after CGEvent synthesis to prevent visible cursor jumps; the shelf supports both left-click activation and right-click context menus
 
 ## Contributing

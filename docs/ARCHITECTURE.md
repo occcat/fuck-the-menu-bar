@@ -49,7 +49,7 @@
           ┌─────────────────────────────────────────┐
           │              Overlay                    │
           │  MenuBarOverlayController               │
-          │  (NSPanel: frosted mask + bubble card)  │
+          │  (NSPanel: glass mask + glass bubble)   │
           └─────────────────────────────────────────┘
 ```
 
@@ -68,9 +68,9 @@ graph TD
     Discovery["Discovery<br/><i>AX + CGWindowList dual-scan</i>"]
     LayoutEngine["LayoutEngine<br/><i>Tri-partition layout</i>"]
     Overlay["Overlay<br/><i>NSPanel overlay + interaction router</i>"]
-    SharedUI["SharedUI<br/><i>Cross-module UI (HotkeyFormatter)</i>"]
+    SharedUI["SharedUI<br/><i>Liquid Glass design system, HotkeyFormatter</i>"]
 
-    AppShell["AppShell<br/><i>App entry, AppDelegate, SwiftUI views</i>"]
+    AppShell["AppShell<br/><i>App entry, AppDelegate, SwiftUI settings & onboarding</i>"]
     FixtureMenuExtras["FixtureMenuExtras<br/><i>Dev-only fake menu bar icons</i>"]
 
     Localization --> Core
@@ -84,6 +84,7 @@ graph TD
     Overlay --> Core
     Overlay --> LayoutEngine
     Overlay --> Localization
+    Overlay --> SharedUI
     SharedUI --> Core
     SharedUI --> Localization
 
@@ -187,7 +188,7 @@ flowchart LR
 | **2. Identify** | `Core` | `ItemIdentitySeed` | Stable `String` ID | Priority: AX Identifier > title > geometry signature (`minX:width:height`). Enables persistent rules even when icon positions shift |
 | **3. Dedupe** | `AppShell` | `[ManagedMenuBarItem]` | Deduplicated `[ManagedMenuBarItem]` | `deduplicateManagedItems()` groups items by normalized app name (case-insensitive, trimmed). Scoring: user-defined rule (+100), `canPerformPress` (+20), AX source (+10), visibility rule weight (+2/+4). Keeps highest-scoring entry per app |
 | **4. Layout** | `LayoutEngine` | `[ManagedMenuBarItem]` + rules + hidden order | `MenuBarLayoutResult` | Items sorted by screen X. Three buckets: `alwaysVisible` (untouched), `hiddenInBar` + `alwaysHidden` (masked), `hiddenInBar` (shelf). Shelf respects user drag-order |
-| **5. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, dynamic height based on shelf item count (44 pt collapsed, expands for bubble). Masked items get opaque frosted `RoundedRectangle` overlays (`ultraThinMaterial` layer skipped when mask opacity is 1.0). Shelf rendered as vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) with `ShelfItemRow` per item showing resolved app icon + name. Bubble offset from menu bar is configurable via `bubbleVerticalOffset` (default 58 pt). Global/local click monitors auto-collapse on outside click. Settings shelf order supports drag-and-drop reordering; the dragged source row is visually hidden during drag to prevent ghosting, and the final visual order is persisted directly via `setShelfOrder(_:)`, ensuring the bubble card always reflects the user's intended order |
+| **5. Render** | `Overlay` | Layout result + appearance settings | On-screen NSPanel | Borderless `NSPanel` at `.statusBar` level, dynamic height based on shelf item count (44 pt collapsed, expands for bubble). Masked items get capsule-shaped opaque covers with a `liquidGlassHighlight` sheen on top, so hiding strength is unchanged. Shelf rendered as a vertical bubble card on a `liquidGlass` surface (native `glassEffect` on macOS 26 built with the Xcode 26 SDK, Material + specular rim fallback otherwise) with concentric corner radii 24 → 16 → 9 computed by `ShelfBubbleMetrics`. Rows have a fixed 48 pt height; at most 5 rows are shown and longer shelves scroll inside the bubble. The bubble scales out of the status item anchor, and its expand/collapse timing comes from `LiquidMotion` (driven by `animationDuration`, simple fades under Reduce Motion). Bubble offset from menu bar is configurable via `bubbleVerticalOffset` (default 58 pt). Global/local click monitors auto-collapse on outside click. Settings shelf order supports drag-and-drop reordering; the dragged source row is visually hidden during drag to prevent ghosting, and the final visual order is persisted directly via `setShelfOrder(_:)`, ensuring the bubble card always reflects the user's intended order |
 | **6. Interact** | `Overlay` | User click on shelf item | Menu bar action triggered | `AppModel.activate()` first attempts `tryAccessibilityPress()` for left-click + `proxyPreferred` items — on success, collapses overlay via `collapseReveal()`. On failure (or right-click), collapses overlay first via `collapseReveal()`, delays 150 ms, then `DefaultMenuBarInteractionRouter.activate()` routes by `ProxyInteractionMode` and `MenuBarClickButton`: left-click tries AXPress then falls back to synthesized `CGEvent`; right-click always synthesizes `CGEvent` right-mouse-down/up at item midpoint. Cursor position is saved before CGEvent synthesis and restored via `CGWarpMouseCursorPosition` after, preventing visible cursor jumps |
 
 ---
@@ -214,7 +215,7 @@ Foundation types shared by every module. Zero dependencies.
 
 ### Discovery
 
-Dual-channel menu bar scanner running on a 5-second `Timer`. Fresh scan results are only published while the application is in the background. When the app is active, the settings UI keeps showing the last background snapshot instead of replacing it with foreground-biased results. Manual refresh from settings performs a controlled background scan by briefly hiding the app, then reopening settings with the refreshed snapshot.
+Dual-channel menu bar scanner running on a 5-second `Timer`. Fresh scan results are only published while the application is in the background. When the app is active, the settings UI keeps showing the last background snapshot instead of replacing it with foreground-biased results. Manual refresh from settings performs a controlled background scan by briefly yielding activation (`NSApp.deactivate()`) — the settings window stays on screen — and re-activates settings once the refreshed snapshot is published.
 
 - **AX channel**: Iterates all running applications via `NSWorkspace.shared.runningApplications`, creates `AXUIElementCreateApplication`, reads `AXExtrasMenuBar` and `AXMenuBar`, recursively walks children (depth 2), filters by `isLikelyMenuBarItem(bounds:)` (top-of-screen heuristic +-4 to 40 pt).
 - **Window Server channel**: `CGWindowListCopyWindowInfo` with on-screen-only filter, width 10..180 pt guard.
@@ -240,11 +241,11 @@ Pure function: `computeLayout(input:) -> MenuBarLayoutResult`.
 
 Three co-located types in the `Overlay` module:
 
-1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width with dynamic height: 44 pt when collapsed, expanding based on shelf item count when revealed. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders opaque frosted mask rectangles over hidden items (skips `ultraThinMaterial` layer when mask opacity is 1.0 for performance) and a vertical bubble card (`RoundedRectangle(cornerRadius: 24)`) showing `ShelfItemRow`s with resolved app icons. Bubble vertical offset from the menu bar is driven by `appearance.bubbleVerticalOffset` (default 58 pt, range 30–120 pt), with a `minimumMenuBarClearance` ensuring the bubble never overlaps the menu bar. Registers global and local click monitors to auto-collapse when clicking outside the bubble. Supports `temporarilyReveal(itemID:)` for brief reveal animations. Delayed frame shrink on collapse prevents animation clipping.
+1. **`MenuBarOverlayController`** — Manages a borderless `NSPanel` at `.statusBar` window level. Panel spans full screen width with dynamic height: 44 pt when collapsed, expanding based on shelf item count when revealed. Contains SwiftUI `OverlayRootView` via `NSHostingView`. Renders capsule-shaped opaque masks over hidden items (topped with `liquidGlassHighlight`) and a vertical Liquid Glass bubble card showing `ShelfItemRow`s with resolved app icons. Bubble geometry (48 pt rows, max 5 visible rows with internal scrolling, concentric radii 24 → 16 → 9) comes from `ShelfBubbleMetrics`; rows have hover highlight, press feedback, `acceptsFirstMouse`, and VoiceOver button traits. The bubble scales from the status item anchor; animation and the delayed frame shrink on collapse share `LiquidMotion` timing so the collapse is never clipped. Bubble vertical offset from the menu bar is driven by `appearance.bubbleVerticalOffset` (default 58 pt, range 30–120 pt), with a `minimumMenuBarClearance` ensuring the bubble never overlaps the menu bar. Registers global and local click monitors to auto-collapse when clicking outside the bubble. Supports `temporarilyReveal(itemID:)` for brief reveal animations.
 
 2. **`MenuBarSnapshotProvider`** — Resolves app icons from `.app` bundles by reading `CFBundleIconFile` / `CFBundleIconName` / `CFBundleIcons` from `Info.plist`, then searching the bundle's `Resources` directory for `.icns`, `.png`, or `.pdf` files. Falls back to enumerating the Resources directory for any icon file. Cache keyed by item ID with bundle-ID + icon-file-path signature.
 
-3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Exposes `tryAccessibilityPress(item:) -> Bool` for callers to attempt an AXPress without hiding the overlay first. Accepts a `MenuBarClickButton` parameter (`.left` / `.right`). Saves cursor position before CGEvent synthesis and restores it via `CGWarpMouseCursorPosition` afterward (with AppKit-to-CG coordinate conversion), preventing visible cursor jumps during real-click interactions. Three strategies for left-click:
+3. **`DefaultMenuBarInteractionRouter`** — Implements `MenuBarInteractionRouterProtocol`. Exposes `tryAccessibilityPress(item:) -> Bool` for callers to attempt an AXPress without hiding the overlay first. Accepts a `MenuBarClickButton` parameter (`.left` / `.right`). Saves cursor position before CGEvent synthesis and restores it via `CGWarpMouseCursorPosition` afterward (with AppKit-to-CG coordinate conversion based on the primary display `NSScreen.screens.first`), preventing visible cursor jumps during real-click interactions. Three strategies for left-click:
    - `proxyPreferred`: Try `AXUIElementPerformAction("AXPress")` from cache, re-scan on miss, fall back to real click
    - `revealBeforeAction` / `realClickOnly`: Synthesize `CGEvent` mouse down + mouse up at item midpoint
    Right-click always synthesizes `CGEvent` right-mouse-down + right-mouse-up, bypassing AXPress.
@@ -288,21 +289,38 @@ Returns `PermissionSnapshot` — a frozen value type consumed by UI and decision
 
 ### SharedUI
 
-Cross-module UI utilities. Currently contains `HotkeyFormatter` for displaying human-readable key combinations in the settings UI.
+Cross-module UI utilities used by both `Overlay` and `AppShell`.
+
+- **`LiquidGlass.swift`** — The Liquid Glass design system:
+  - `View.liquidGlass(_:in:interactive:)` — glass surface clipped to a shape (`.regular`, `.clear`, `.tinted(Color)`)
+  - `View.liquidGlassHighlight(in:)` — glass sheen above opaque content (used by the menu bar masks)
+  - `LiquidGlassGroup` — groups glass surfaces so they can blend/morph (`GlassEffectContainer` on macOS 26)
+  - `LiquidMotion` — motion tokens (`duration`, `spring`, `settleDuration`) derived from `animationDuration`
+  - Native `glassEffect` is guarded by `#if compiler(>=6.2)` + `#available(macOS 26.0, *)`, so Xcode 16.x still builds. The fallback uses Material + a specular rim and switches to an opaque window background under "Reduce Transparency"
+- **`HotkeyFormatter`** — human-readable key combinations for the settings UI
+
+Glass is reserved for layers that float above content (shelf bubble, mask sheen, onboarding action bar); list rows and settings content never stack glass on glass.
 
 ### AppShell
 
 Application entry point and coordination hub.
 
 - **`AppDelegate`** — `NSApplicationDelegate`, creates `NSStatusItem`, wires `AppModel`
-- **`StatusItemController`** — Manages the status bar button (the `≡` toggle)
-- **`SettingsWindowController`** — Hosts the SwiftUI settings window (`isMovableByWindowBackground` disabled to prevent conflicts with drag-and-drop reordering)
+- **`StatusItemController`** — Manages the status bar button (the `≡` toggle). The symbol is drawn by an embedded `NSImageView` so expand/collapse can use an SF Symbols `.replace.downUp` content transition (plain swap under Reduce Motion). The image stays a template so the system tints it for the current menu bar appearance, including the transparent menu bar on macOS 26
+- **`SettingsWindowController`** — Hosts the SwiftUI settings and onboarding windows as regular opaque windows (no clear background), so the system provides sidebar materials — Liquid Glass on macOS 26 (`isMovableByWindowBackground` disabled to prevent conflicts with drag-and-drop reordering)
+- **SwiftUI views**:
+  - `Settings/SettingsRootView` — `NavigationSplitView` with a system sidebar; error alert bound via `Binding(get:set:)`
+  - `Settings/Items`, `Settings/Appearance`, `Settings/Shortcuts`, `Settings/General` — one page each, built on `Form` + `.formStyle(.grouped)` with system fonts and semantic text styles
+  - `Onboarding/OnboardingRootView` — permission onboarding; the bottom action bar is the window's only glass surface
+  - `Components/` — shared rows (`SettingsSection`, `SettingsRow`, `PermissionRow`, `StatusBadge`, `InfoTooltipButton`, `MenuExtraPreview`, …) and localized titles for model enums
+  - The appearance page intentionally does not expose `showLabels` / `itemSpacing` / `stripPadding`: the vertical bubble does not consume them, and the fields stay in `AppearanceSettings` for config compatibility
 - **`AppModel`** — `@MainActor ObservableObject`, the central coordinator:
   - Owns instances of all service types
   - Reacts to `onItemsDidChange` from Discovery
   - Deduplicates discovered items by app name via `deduplicateManagedItems()` with scoring-based selection
   - Filters out self-referencing items via `isCurrentAppItem()` (PID, bundle ID, and display name matching)
   - `activate()` uses a two-phase strategy: first attempts `tryAccessibilityPress()` (no overlay hide needed), falls back to `collapseReveal()` + delayed CGEvent with cursor save/restore
+  - `rescan()` from the settings window yields activation (`NSApp.deactivate()`) instead of hiding the app, waits for the resign-active callback (or a 0.35 s timeout), runs a forced background scan, then re-opens the same settings tab
   - Populates `appMetadata` in settings during `rebuildManagedItems()` for config file readability
   - `setShelfOrder(_:)` directly persists a new shelf item order from the drag-and-drop visual state, replacing error-prone index arithmetic
   - Drives layout computation and overlay updates
@@ -373,7 +391,8 @@ settings.json (schemaVersion: 1)
 | `Discovery` | Library | Menu bar item scanner |
 | `LayoutEngine` | Library | Layout computation |
 | `Overlay` | Library | Window overlay + interaction |
-| `SharedUI` | Library | Cross-module UI helpers |
+| `SharedUI` | Library | Liquid Glass design system + cross-module UI helpers |
 | `CoreTests` | Test | Identity builder tests |
 | `LayoutEngineTests` | Test | Layout tri-partition tests |
 | `PersistenceTests` | Test | Settings serialization + migration tests |
+| `OverlayTests` | Test | Shelf bubble geometry + `LiquidMotion` token tests |
