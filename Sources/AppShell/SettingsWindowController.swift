@@ -21,10 +21,10 @@ final class SettingsWindowController {
             window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
+            // Drag-and-drop reordering in the shelf list must not move the window.
             window.isMovableByWindowBackground = false
             window.toolbarStyle = .unifiedCompact
-            window.backgroundColor = .clear
-            window.isOpaque = false
+            // Opaque system window: the sidebar gets system (Liquid Glass on macOS 26) material.
             self.window = window
         }
 
@@ -37,15 +37,13 @@ final class SettingsWindowController {
             let controller = NSHostingController(rootView: OnboardingRootView(model: model))
             let window = NSWindow(contentViewController: controller)
             window.title = L10n.string("window.welcome.title")
-            window.setContentSize(NSSize(width: 540, height: 420))
+            window.setContentSize(NSSize(width: 540, height: 460))
             window.styleMask.insert(.titled)
             window.styleMask.insert(.closable)
             window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
-            window.backgroundColor = .clear
-            window.isOpaque = false
             onboardingWindow = window
         }
         onboardingWindow?.makeKeyAndOrderFront(nil)
