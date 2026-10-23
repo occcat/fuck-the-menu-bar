@@ -38,7 +38,8 @@ macOS のメニューバーがアイコンだらけ。もう、うんざりだ�
 - **アプリアイコン** — `.app` バンドルからアプリアイコンを自動解決（CFBundleIconFile / CFBundleIconName）、棚には本物のアプリアイコンを表示
 - **グローバルホットキー** — デフォルト `⌘⌥M`（初期状態では無効、設定から手動で有効化が必要）、キーと修飾キーの組み合わせをカスタマイズ可能
 - **ドラッグ＆ドロップ並べ替え** — 設定の棚アイテム順序をドラッグ操作で直接変更可能、変更はバブルカードの表示順序に即座に反映
-- **リキッドグラス UI** — フロストマスク ＋ 縦型バブルカード棚（バブルオフセット距離のカスタマイズ対応）＋ スプリングアニメーション。Apple 最新のデザイン言語にインスパイア
+- **リキッドグラス UI** — macOS 26 ではシステム標準の Liquid Glass（`glassEffect`）を使用し、macOS 14/15 では Material による近似表示に自動フォールバック。カプセル型マスク ＋ 縦型バブルカード棚（最大 5 行表示、超過分はスクロール、バブルオフセット距離のカスタマイズ対応）＋ ステータスアイテムから広がるスプリングアニメーション。「視差効果を減らす」「透明度を下げる」に対応
+- **ネイティブ設定画面** — 設定はシステムサイドバー ＋ グループ化フォームで構成（macOS 26 では Liquid Glass サイドバー）。ステータスアイテムのアイコンは展開/折りたたみ時に SF Symbols のトランジションで切り替わる
 - **操作ツールチップ** — AX Press / Real Click バッジの横にインフォバブルを表示、ホバーまたはクリックで操作方法の詳細説明を確認可能
 - **外部クリックで自動折りたたみ** — バブル外の任意の場所をクリックすると棚が自動的に折りたたまれる
 - **多言語対応** — 簡体字中国語、繁体字中国語、English、日本語 — アプリ内で即時切り替え
@@ -100,19 +101,20 @@ Sources/
 ├── Core/                 # モデル、プロトコル、AX キャッシュ、ID ビルダー
 ├── Discovery/            # Accessibility + Window Server デュアルチャネルスキャン
 ├── LayoutEngine/         # 表示/マスク/棚の三分割レイアウト計算
-├── Overlay/              # フロストマスクウインドウ ＋ 棚ストリップオーバーレイ ＋ 操作ルーター
+├── Overlay/              # マスクウインドウ ＋ リキッドグラスの棚バブル ＋ 操作ルーター
 ├── Persistence/          # JSON 設定の読み書き ＋ v0 マイグレーション
 ├── Permissions/          # AX / Screen Recording / ログイン項目の権限調整
 ├── Hotkey/               # Carbon EventHotKey グローバルショートカット
 ├── Localization/         # L10n 多言語エンジン ＋ .strings リソースバンドル
-├── SharedUI/             # クロスモジュール UI ユーティリティ（ホットキーフォーマッタなど）
-├── AppShell/             # アプリエントリ、AppDelegate、SwiftUI 設定 & オンボーディング
+├── SharedUI/             # クロスモジュール UI：Liquid Glass デザインシステム（LiquidGlass）、ホットキーフォーマッタ
+├── AppShell/             # アプリエントリ、AppDelegate、ステータスアイテム、SwiftUI 設定（Settings/）、オンボーディング（Onboarding/）、共通コンポーネント（Components/）
 └── FixtureMenuExtras/    # 開発用ダミーメニューバーアイコン注入ツール
 
 Tests/
 ├── CoreTests/            # MenuBarIdentityBuilder 安定性テスト
 ├── LayoutEngineTests/    # レイアウトエンジン分割テスト
-└── PersistenceTests/     # 設定シリアライゼーション ＋ レガシーマイグレーションテスト
+├── PersistenceTests/     # 設定シリアライゼーション ＋ レガシーマイグレーションテスト
+└── OverlayTests/         # 棚バブルのジオメトリ ＋ モーショントークンのテスト
 ```
 
 > 詳細なアーキテクチャと依存グラフについては [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
@@ -157,11 +159,11 @@ Tests/
 
 ## 仕組み
 
-1. **検出** — `SystemMenuBarDiscoveryService` が 5 秒ごとにスキャンし、AX API で全実行中アプリの `AXExtrasMenuBar` / `AXMenuBar` を走査。`CGWindowListCopyWindowInfo` で Window Server のみで見える項目を補完。アプリがフォアグラウンドの間は自動スキャンを一時停止し、バックグラウンドに移行すると再開
+1. **検出** — `SystemMenuBarDiscoveryService` が 5 秒ごとにスキャンし、AX API で全実行中アプリの `AXExtrasMenuBar` / `AXMenuBar` を走査。`CGWindowListCopyWindowInfo` で Window Server のみで見える項目を補完。アプリがフォアグラウンドの間は自動スキャンを一時停止し、バックグラウンドに移行すると再開。設定で「再スキャン」を押すと、アプリは一時的にフォアグラウンドを譲り（設定ウインドウは表示されたまま）制御されたバックグラウンドスキャンを実行し、完了後に設定へ戻る
 2. **アイデンティティ** — `MenuBarIdentityBuilder` が各アイコンに安定 ID を生成：AX Identifier 優先、タイトルにフォールバック、最終的にジオメトリシグネチャを使用
 3. **重複排除** — `AppModel` がアプリ名でスマートに重複排除し、操作能力の最も高いエントリを保持（ユーザー定義ルール、AXPress サポート、Accessibility ソースの項目を優先）
 4. **レイアウト** — `DefaultMenuBarLayoutEngine` が表示ルールに基づき項目を 3 グループに分割：常に表示、マスク対象、棚表示
-5. **レンダリング** — `MenuBarOverlayController` がボーダーレスの `NSPanel` をメニューバーの上に浮かせ、隠しアイコンにフロストマスクを重ね、展開時に縦型バブルカードを描画；バブル外のクリックで自動折りたたみ
+5. **レンダリング** — `MenuBarOverlayController` がボーダーレスの `NSPanel` をメニューバーの上に浮かせ、隠しアイコンにカプセル型の不透明マスク（ガラスのハイライト付き）を重ね、展開時にはステータスアイテムからリキッドグラスの縦型バブルカードを広げる；バブル外のクリックで自動折りたたみ
 6. **操作** — `DefaultMenuBarInteractionRouter` が AXPress 対応項目はまず Accessibility 経由で直接クリックを試行（overlay を隠さず実行）、成功すれば `collapseReveal()` で折りたたみ；非対応または失敗時は overlay を先に折りたたんでから遅延して CGEvent マウスイベントを合成。操作前にカーソル位置を保存し操作後に復元することで、マウスジャンプを防止；棚は左クリックによるアクティベートと右クリックによるコンテキストメニューの両方をサポート
 
 ## コントリビュート

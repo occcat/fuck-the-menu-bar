@@ -38,7 +38,8 @@ macOS 選單列擠滿圖示，你受夠了。
 - **應用程式圖示** — 自動從 `.app` bundle 解析應用程式圖示（CFBundleIconFile / CFBundleIconName），收納列顯示真實應用程式圖示
 - **全域快捷鍵** — 預設 `⌘⌥M`（預設關閉，需在設定中手動啟用），可自訂按鍵和修飾鍵組合
 - **拖曳排序** — 設定中的收納列排序支援直接拖曳調整順序，拖曳結果即時同步到氣泡卡片展示順序
-- **液態玻璃 UI** — 磨砂遮罩 + 縱向氣泡卡片收納列（支援自訂氣泡偏移距離）+ 彈性動效，致敬 Apple 最新設計語言
+- **液態玻璃 UI** — macOS 26 上使用系統原生 Liquid Glass（`glassEffect`），macOS 14/15 自動回退到 Material 近似效果；膠囊形遮罩 + 縱向氣泡卡片收納列（最多顯示 5 列，超出可捲動，支援自訂氣泡偏移距離）+ 從狀態列圖示處展開的彈性動效；遵循「減少動態效果」與「降低透明度」
+- **原生設定介面** — 設定頁使用系統側邊欄 + 分組表單（macOS 26 自動取得 Liquid Glass 側邊欄）；狀態列圖示在展開/收起時帶 SF Symbols 過渡動畫
 - **互動提示** — AX Press / Real Click 徽章旁帶有資訊氣泡，hover 或點擊即可查看互動方式的詳細說明
 - **點擊外部自動收起** — 展開收納列後，點擊氣泡外部任意區域自動摺疊
 - **多語言** — 簡體中文、繁體中文、English、日本語，App 內切換即時生效
@@ -100,19 +101,20 @@ Sources/
 ├── Core/                 # 模型、協定、AX 快取、身份建構器
 ├── Discovery/            # Accessibility + Window Server 雙通道掃描
 ├── LayoutEngine/         # 可見/遮罩/收納三分區佈局計算
-├── Overlay/              # 磨砂遮罩視窗 + 收納條浮層 + 互動路由
+├── Overlay/              # 遮罩視窗 + 液態玻璃收納氣泡 + 互動路由
 ├── Persistence/          # JSON 設定讀寫 + v0 遷移
 ├── Permissions/          # AX / Screen Recording / 登入項目權限協調
 ├── Hotkey/               # Carbon EventHotKey 全域快捷鍵
 ├── Localization/         # L10n 多語言引擎 + .strings 資源
-├── SharedUI/             # 跨模組 UI 工具（如快捷鍵格式化）
-├── AppShell/             # 應用程式入口、AppDelegate、SwiftUI 設定/引導介面
+├── SharedUI/             # 跨模組 UI：Liquid Glass 設計系統（LiquidGlass）、快捷鍵格式化
+├── AppShell/             # 應用程式入口、AppDelegate、狀態列圖示、SwiftUI 設定頁（Settings/）、引導頁（Onboarding/）、通用元件（Components/）
 └── FixtureMenuExtras/    # 開發用假選單列圖示注入器
 
 Tests/
 ├── CoreTests/            # MenuBarIdentityBuilder 穩定性測試
 ├── LayoutEngineTests/    # 佈局引擎分區測試
-└── PersistenceTests/     # 設定序列化 + 舊版遷移測試
+├── PersistenceTests/     # 設定序列化 + 舊版遷移測試
+└── OverlayTests/         # 收納氣泡幾何與動效 token 測試
 ```
 
 > 詳細架構說明與依賴圖請閱讀 [ARCHITECTURE.md](ARCHITECTURE.md)。
@@ -157,11 +159,11 @@ Tests/
 
 ## 運作原理
 
-1. **發現** — `SystemMenuBarDiscoveryService` 每 5 秒掃描一次，透過 AX API 遍歷所有執行中 App 的 `AXExtrasMenuBar` / `AXMenuBar`，同時透過 `CGWindowListCopyWindowInfo` 補充僅 Window Server 可見的項目。App 處於前台時自動暫停掃描，切到背景後恢復
+1. **發現** — `SystemMenuBarDiscoveryService` 每 5 秒掃描一次，透過 AX API 遍歷所有執行中 App 的 `AXExtrasMenuBar` / `AXMenuBar`，同時透過 `CGWindowListCopyWindowInfo` 補充僅 Window Server 可見的項目。App 處於前台時自動暫停掃描，切到背景後恢復；在設定頁點擊「重新掃描」時，App 會短暫讓出前台（設定視窗保持顯示）以執行一次受控背景掃描，完成後自動回到設定頁
 2. **身份** — `MenuBarIdentityBuilder` 為每個圖示產生穩定 ID：優先使用 AX Identifier，退回標題，最終使用幾何簽章
 3. **去重** — `AppModel` 按應用程式名稱對發現結果進行智慧去重，保留互動能力最強的條目（優先保留有使用者自訂規則、支援 AXPress、來自 Accessibility 通道的項目）
 4. **佈局** — `DefaultMenuBarLayoutEngine` 根據可見性規則將項目分為三組：始終可見、遮罩覆蓋、收納列展示
-5. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加磨砂遮罩，展開時渲染縱向氣泡卡片；點擊卡片外部區域自動摺疊
+5. **渲染** — `MenuBarOverlayController` 用一個 borderless `NSPanel` 浮在選單列之上，對被隱藏的圖示疊加膠囊形不透明遮罩（帶玻璃高光），展開時從狀態列圖示處展開液態玻璃縱向氣泡卡片；點擊卡片外部區域自動摺疊
 6. **互動** — `DefaultMenuBarInteractionRouter` 對支援 AXPress 的項目，先嘗試透過 Accessibility 直接觸發點擊（無需隱藏 overlay），成功則呼叫 `collapseReveal()` 摺疊；不支援或失敗時，先摺疊 overlay 再延遲合成 CGEvent 滑鼠事件，互動前儲存游標位置、互動後自動恢復，避免滑鼠跳動；收納列同時支援左鍵啟動和右鍵上下文選單
 
 ## 貢獻
