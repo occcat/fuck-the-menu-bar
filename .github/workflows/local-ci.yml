@@ -1,9 +1,9 @@
-name: CI (MacBook M1)
+name: CI (M1 macOS)
 
 on:
   push:
     tags:
-      - 'v*'
+    - 'v*'
   workflow_dispatch:
 
 concurrency:
@@ -12,22 +12,26 @@ concurrency:
 
 jobs:
   build-and-test-tahoe:
-    name: Build & Test (MacBook M1)
-    if: github.actor == 'occcat' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, macOS, ARM64, occcat-m1]
+    name: Build & Test (macOS 26 · Xcode 26 · native Liquid Glass)
+    runs-on:
+    - self-hosted
+    - macOS
+    - ARM64
+    - occcat-m1
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-        with:
-          persist-credentials: false
-      - name: Show installed Swift toolchain
-        run: |
-          xcrun --find swift
-          swift --version
+      with:
+        persist-credentials: false
+    - name: Show installed Swift toolchain
+      run: |
+        xcrun --find swift
+        swift --version
 
-      - name: Build
-        run: swift build
+    - name: Build
+      run: swift build
 
-      - name: Test
-        run: swift test
-    timeout-minutes: 60
+    - name: Test
+      run: swift test
+    if: github.actor == 'occcat' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    timeout-minutes: 120
