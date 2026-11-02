@@ -12,12 +12,13 @@ concurrency:
 
 jobs:
   build-and-test-tahoe:
-    name: Build & Test (macOS 26 · Xcode 26 · native Liquid Glass)
+    name: Build & Test (M1 macOS)
     runs-on:
     - self-hosted
     - macOS
     - ARM64
     - occcat-m1
+    - xcode
     steps:
     - uses: actions/checkout@v4
 

@@ -16,6 +16,7 @@ jobs:
     - macOS
     - ARM64
     - occcat-m1
+    - xcode
     steps:
     - uses: actions/checkout@v4
 
